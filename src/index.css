@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #F7F8FA;
+  --color-bg-subtle: #F0F2F5;
+  --color-sidebar: #FFFFFF;
+  --color-surface: #FFFFFF;
+  --color-surface-hover: #F8FAFC;
+  --color-border: #E5E7EB;
+  --color-primary: #4F46E5;
+  --color-primary-hover: #4338CA;
+  --color-primary-light: #EEF2FF;
+  --color-text-primary: #1F2937;
+  --color-text-secondary: #64748B;
+  --color-text-muted: #94A3B8;
+}
+
+.dark {
+  --color-bg: #0D1117;
+  --color-bg-subtle: #161B22;
+  --color-sidebar: #161B22;
+  --color-surface: #21262D;
+  --color-surface-hover: #2D333B;
+  --color-border: #30363D;
+  --color-primary: #58A6FF;
+  --color-primary-hover: #388BFD;
+  --color-primary-light: rgba(56, 139, 253, 0.15);
+  --color-text-primary: #E6EDF3;
+  --color-text-secondary: #8B949E;
+  --color-text-muted: #6E7681;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg);
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom Scrollbar for high-density developer tools */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+.app-drag-region {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
