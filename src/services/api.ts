@@ -8,6 +8,8 @@ import {
   ActionItem,
   GitHubRepository,
   Team,
+  PublicUserProfile,
+  USER_CODE_PATTERN,
 } from '../types';
 import {
   currentUser,
@@ -35,6 +37,16 @@ const STORAGE_KEYS = {
 function initStorage() {
   if (!localStorage.getItem(STORAGE_KEYS.USER)) {
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
+  } else {
+    // Migration: users stored before userCode existed would never see their code on the dashboard
+    try {
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEYS.USER)!) as User;
+      if (!stored.userCode || stored.userCode !== currentUser.userCode) {
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify({ ...stored, userCode: currentUser.userCode }));
+      }
+    } catch {
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
+    }
   }
   if (!localStorage.getItem(STORAGE_KEYS.WORKSPACE)) {
     localStorage.setItem(STORAGE_KEYS.WORKSPACE, JSON.stringify(initialWorkspace));
@@ -128,13 +140,16 @@ export const api = {
   },
 
   // 3-1. Teams
+  // Only teams the current user belongs to — other people's teams must not be visible.
+  // (Real backend must enforce this server-side; filtering here is only for the mock.)
   getTeams: async (): Promise<Team[]> => {
-    const teams = getStored<Team[]>(STORAGE_KEYS.TEAMS, initialTeams);
+    const me = getStored<User>(STORAGE_KEYS.USER, currentUser);
+    const teams = getStored<Team[]>(STORAGE_KEYS.TEAMS, initialTeams).filter((t) =>
+      (t.memberIds || []).includes(me.id)
+    );
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
-    // Populate leads, members, and projects
     return teams.map((t) => ({
       ...t,
-      lead: teamMembers.find((m) => m.id === t.leadId) || t.lead,
       members: (t.memberIds || []).map((id) => teamMembers.find((m) => m.id === id)!).filter(Boolean),
       projects: (t.projectIds || []).map((pid) => projects.find((p) => p.id === pid)!).filter(Boolean),
     }));
@@ -147,13 +162,16 @@ export const api = {
 
   createTeam: async (teamData: Omit<Team, 'id' | 'createdAt' | 'members' | 'projects'>): Promise<Team> => {
     const teams = getStored<Team[]>(STORAGE_KEYS.TEAMS, initialTeams);
-    const lead = teamMembers.find((m) => m.id === teamData.leadId) || teamMembers[0];
+    const me = getStored<User>(STORAGE_KEYS.USER, currentUser);
+    // Creator is always a member; drop duplicates and unknown ids
+    const memberIds = Array.from(new Set([me.id, ...(teamData.memberIds || [])])).filter((mid) =>
+      teamMembers.some((m) => m.id === mid)
+    );
     const newTeam: Team = {
       ...teamData,
       id: `team-${Date.now()}`,
-      lead,
-      memberIds: teamData.memberIds || [teamData.leadId],
-      members: (teamData.memberIds || [teamData.leadId]).map((mid) => teamMembers.find((m) => m.id === mid)!).filter(Boolean),
+      memberIds,
+      members: memberIds.map((mid) => teamMembers.find((m) => m.id === mid)!).filter(Boolean),
       projectIds: teamData.projectIds || [],
       createdAt: new Date().toISOString(),
     };
@@ -169,6 +187,27 @@ export const api = {
     teams[index] = { ...teams[index], ...updateData };
     setStored(STORAGE_KEYS.TEAMS, teams);
     return teams[index];
+  },
+
+  // Link a project to a team using fresh stored data (no stale UI state, no duplicate ids)
+  linkProjectToTeam: async (teamId: string, projectId: string): Promise<Team> => {
+    const me = getStored<User>(STORAGE_KEYS.USER, currentUser);
+    const teams = getStored<Team[]>(STORAGE_KEYS.TEAMS, initialTeams);
+    const team = teams.find((t) => t.id === teamId);
+    if (!team) throw new Error('Team not found');
+    if (!(team.memberIds || []).includes(me.id)) throw new Error('Not a member of this team');
+    const projectIds = Array.from(new Set([...(team.projectIds || []), projectId]));
+    return api.updateTeam(teamId, { projectIds });
+  },
+
+  // Find a user by their 6-character user code (for team invitations).
+  // Returns only public fields — email/department must not leak to someone who just guessed a code.
+  findUserByCode: async (code: string): Promise<PublicUserProfile | null> => {
+    const normalizedCode = code.trim().toUpperCase();
+    if (!USER_CODE_PATTERN.test(normalizedCode)) return null;
+    const found = teamMembers.find((m) => m.userCode?.toUpperCase() === normalizedCode);
+    if (!found) return null;
+    return { id: found.id, name: found.name, avatarUrl: found.avatarUrl, userCode: found.userCode };
   },
 
   // 4. Tasks

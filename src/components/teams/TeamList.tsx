@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users2, Plus, ArrowUpRight, FolderKanban, CheckSquare, Crown } from 'lucide-react';
+import { Users2, Plus, ArrowUpRight, FolderKanban, CheckSquare } from 'lucide-react';
 import { useTeamStore } from '../../store/useTeamStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTaskStore } from '../../store/useTaskStore';
@@ -7,7 +7,6 @@ import { useUIStore } from '../../store/useUIStore';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Avatar } from '../ui/Avatar';
-import { Badge } from '../ui/Badge';
 
 export const TeamList: React.FC = () => {
   const { teams } = useTeamStore();
@@ -61,7 +60,7 @@ export const TeamList: React.FC = () => {
               className="p-5 flex flex-col justify-between space-y-4 group"
             >
               <div className="space-y-3">
-                {/* Top: Color bar & Team Lead */}
+                {/* Top: Color bar & member count */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span
@@ -72,13 +71,6 @@ export const TeamList: React.FC = () => {
                       {team.members.length}명 소속
                     </span>
                   </div>
-
-                  {team.lead && (
-                    <div className="flex items-center gap-1.5 text-xs text-text-secondary bg-surface-hover px-2 py-0.5 rounded-full border border-border/60">
-                      <Crown className="h-3 w-3 text-amber-500" />
-                      <span className="font-medium text-text-primary">{team.lead.name}</span>
-                    </div>
-                  )}
                 </div>
 
                 {/* Team Name & Description */}

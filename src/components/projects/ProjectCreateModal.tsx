@@ -1,18 +1,21 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input, Textarea } from '../ui/Input';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
-import { teamMembers } from '../../services/mockData';
+import { useTeamStore } from '../../store/useTeamStore';
 import { ProjectType } from '../../types';
+import { api } from '../../services/api';
 
 export interface ProjectCreateModalProps {
   isOpen: boolean;
   onClose: () => void;
+  defaultTeamId?: string; // 팀 상세에서 열 때 자동 선택
 }
 
-export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, onClose }) => {
-  const { createProject, currentWorkspace } = useWorkspaceStore();
+export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, onClose, defaultTeamId }) => {
+  const { createProject, currentWorkspace, currentUser } = useWorkspaceStore();
+  const { teams, fetchTeams } = useTeamStore();
 
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
@@ -23,7 +26,13 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   const [projectType, setProjectType] = useState<ProjectType>('WEB');
   const [techStackInput, setTechStackInput] = useState('React, TypeScript, Spring Boot');
   const [repoName, setRepoName] = useState('');
+  const [selectedTeamId, setSelectedTeamId] = useState(defaultTeamId || '');
   const [isLoading, setIsLoading] = useState(false);
+
+  // The modal stays mounted, so useState(defaultTeamId) only runs once — re-sync on every open
+  useEffect(() => {
+    if (isOpen) setSelectedTeamId(defaultTeamId || '');
+  }, [isOpen, defaultTeamId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,7 +47,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
 
       const generatedKey = key.trim().toUpperCase() || name.slice(0, 3).toUpperCase();
 
-      await createProject({
+      const newProject = await createProject({
         workspaceId: currentWorkspace?.id || 'ws-flowmate',
         name: name.trim(),
         key: generatedKey,
@@ -48,7 +57,13 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
         endDate,
         projectType,
         techStack,
-        members: teamMembers.map((u) => ({ user: u, role: u.role })),
+        // 팀 선택 시 해당 팀원만, 아니면 본인만 — 전체 유저를 프로젝트에 넣지 않음.
+        // 생성자는 프로젝트 리더(OWNER)로 지정 (리더는 팀이 아니라 프로젝트 단위)
+        members: (() => {
+          const team = teams.find((t) => t.id === selectedTeamId);
+          const users = team ? team.members : currentUser ? [currentUser] : [];
+          return users.map((u) => ({ user: u, role: u.id === currentUser?.id ? 'OWNER' as const : 'MEMBER' as const }));
+        })(),
         githubRepo: repoName.trim()
           ? {
               id: Date.now(),
@@ -60,6 +75,12 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
             }
           : undefined,
       });
+
+      // If a team was selected, link this project to that team
+      if (selectedTeamId) {
+        await api.linkProjectToTeam(selectedTeamId, newProject.id);
+        await fetchTeams(); // Refresh teams store
+      }
 
       onClose();
     } catch (err) {
@@ -159,6 +180,28 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
           onChange={(e) => setTechStackInput(e.target.value)}
         />
 
+        {/* Team selection */}
+        <div>
+          <label className="block text-xs font-medium text-text-secondary mb-1">
+            소속 팀 (Team) — 선택
+          </label>
+          <select
+            value={selectedTeamId}
+            onChange={(e) => setSelectedTeamId(e.target.value)}
+            className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="">팀 없이 생성</option>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-text-muted">
+            선택 시 해당 팀의 프로젝트로 자동 연결됩니다.
+          </p>
+        </div>
+
         <Input
           label="연결할 GitHub Repository (선택)"
           placeholder="예: FlowMate-Core"
@@ -178,3 +221,4 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
     </Modal>
   );
 };
+

@@ -14,7 +14,7 @@ import { TaskListView } from './TaskListView';
 import { TaskKanbanView } from './TaskKanbanView';
 import { TaskTimelineView } from './TaskTimelineView';
 import { Button } from '../ui/Button';
-import { teamMembers } from '../../services/mockData';
+import { getCollaboratorUsers, getProjectMemberUsers } from '../../utils/projectMembers';
 import { TaskStatus, TaskPriority } from '../../types';
 
 export const TasksView: React.FC = () => {
@@ -33,9 +33,12 @@ export const TasksView: React.FC = () => {
   } = useTaskStore();
 
   const { setCreateTaskModalOpen, setSelectedTaskIdForDetail } = useUIStore();
-  const { currentProjectId, projects } = useWorkspaceStore();
+  const { currentProjectId, projects, currentUser } = useWorkspaceStore();
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
+  const assigneeFilterOptions = currentProject
+    ? getProjectMemberUsers(currentProject, currentUser)
+    : getCollaboratorUsers(projects, currentUser);
 
   // Filter tasks
   const filteredTasks = tasks.filter((t) => {
@@ -170,7 +173,7 @@ export const TasksView: React.FC = () => {
             className="h-8 px-2.5 rounded-md border border-border bg-surface text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
           >
             <option value="ALL">전체 담당자</option>
-            {teamMembers.map((m) => (
+            {assigneeFilterOptions.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
               </option>

@@ -6,6 +6,7 @@ export const currentUser: User = {
   email: 'developer@flowmate.io',
   role: 'OWNER',
   department: 'Core Frontend',
+  userCode: 'K7Q2XM',
   avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&h=120&fit=crop&crop=faces',
 };
 
@@ -17,6 +18,7 @@ export const teamMembers: User[] = [
     email: 'archi@flowmate.io',
     role: 'ADMIN',
     department: 'Backend Architecture',
+    userCode: 'A3H9WD',
     avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&h=120&fit=crop&crop=faces',
   },
   {
@@ -25,6 +27,7 @@ export const teamMembers: User[] = [
     email: 'front@flowmate.io',
     role: 'MEMBER',
     department: 'Desktop Client',
+    userCode: 'P4N8RT',
     avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&h=120&fit=crop&crop=faces',
   },
   {
@@ -33,6 +36,7 @@ export const teamMembers: User[] = [
     email: 'design@flowmate.io',
     role: 'MEMBER',
     department: 'Product Design',
+    userCode: 'Z6C5VJ',
     avatarUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=120&h=120&fit=crop&crop=faces',
   },
   {
@@ -41,6 +45,7 @@ export const teamMembers: User[] = [
     email: 'devops@flowmate.io',
     role: 'MEMBER',
     department: 'Cloud & Infrastructure',
+    userCode: 'M2X7EB',
     avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&h=120&fit=crop&crop=faces',
   },
 ];
@@ -133,8 +138,6 @@ export const initialTeams: Team[] = [
     workspaceId: 'ws-flowmate',
     name: 'Frontend Core Team',
     description: 'Electron 데스크톱 런타임, React 컴포넌트 시스템 및 사용자 경험(UX) 개발',
-    leadId: 'user-3',
-    lead: teamMembers[2], // 박프론트
     memberIds: ['user-1', 'user-3', 'user-4'],
     members: [teamMembers[0], teamMembers[2], teamMembers[3]],
     projectIds: ['proj-1'],
@@ -146,8 +149,6 @@ export const initialTeams: Team[] = [
     workspaceId: 'ws-flowmate',
     name: 'Backend & Cloud Team',
     description: 'Spring Boot REST API, PostgreSQL 데이터베이스, GitHub 연동 및 AWS 인프라 구성',
-    leadId: 'user-2',
-    lead: teamMembers[1], // 이아키
     memberIds: ['user-2', 'user-5'],
     members: [teamMembers[1], teamMembers[4]],
     projectIds: ['proj-1', 'proj-3'],
@@ -159,8 +160,6 @@ export const initialTeams: Team[] = [
     workspaceId: 'ws-flowmate',
     name: 'AI / ML Squad',
     description: 'Amazon Transcribe STT 음성인식 최적화 및 Bedrock 기반 회의록 요약 / Action Items 추출 모델',
-    leadId: 'user-1',
-    lead: teamMembers[0], // 김개발
     memberIds: ['user-1', 'user-2', 'user-5'],
     members: [teamMembers[0], teamMembers[1], teamMembers[4]],
     projectIds: ['proj-2'],

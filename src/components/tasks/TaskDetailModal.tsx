@@ -15,7 +15,7 @@ import { Modal } from '../ui/Modal';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Avatar } from '../ui/Avatar';
-import { teamMembers } from '../../services/mockData';
+import { getProjectMemberUsers } from '../../utils/projectMembers';
 import { useTaskStore } from '../../store/useTaskStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { formatDate, formatTimeAgo } from '../../utils/formatters';
@@ -27,12 +27,19 @@ export interface TaskDetailModalProps {
 
 export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClose }) => {
   const { tasks, updateTask, updateTaskStatus, createGitHubIssue, deleteTask } = useTaskStore();
-  const { currentUser } = useWorkspaceStore();
+  const { currentUser, projects } = useWorkspaceStore();
   const [commentInput, setCommentInput] = useState('');
   const [isSyncingGitHub, setIsSyncingGitHub] = useState(false);
 
   const task = tasks.find((t) => t.id === taskId);
   if (!task) return null;
+
+  // 담당자는 이 업무가 속한 프로젝트의 멤버로 한정 (기존 담당자는 목록에 남겨 표시가 깨지지 않게)
+  const projectMembers = getProjectMemberUsers(projects.find((p) => p.id === task.projectId), currentUser);
+  const assigneeOptions =
+    task.assignee && !projectMembers.some((m) => m.id === task.assignee!.id)
+      ? [...projectMembers, task.assignee]
+      : projectMembers;
 
   const handleStatusChange = (newStatus: TaskStatus) => {
     updateTaskStatus(task.id, newStatus);
@@ -43,7 +50,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
   };
 
   const handleAssigneeChange = (assigneeId: string) => {
-    const newAssignee = teamMembers.find((m) => m.id === assigneeId);
+    const newAssignee = projectMembers.find((m) => m.id === assigneeId);
     if (newAssignee) {
       updateTask(task.id, { assignee: newAssignee });
     }
@@ -249,9 +256,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
               className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="">담당자 선택...</option>
-              {teamMembers.map((m) => (
+              {assigneeOptions.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.name} ({m.department})
+                  {m.name}{m.department ? ` (${m.department})` : ''}
                 </option>
               ))}
             </select>

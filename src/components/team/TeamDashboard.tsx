@@ -16,13 +16,15 @@ import {
 import { Users2, CheckCircle2, Clock, GitPullRequest, GitCommit, CheckCheck } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTaskStore } from '../../store/useTaskStore';
-import { teamMembers } from '../../services/mockData';
+import { getCollaboratorUsers } from '../../utils/projectMembers';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { Avatar } from '../ui/Avatar';
 import { Badge } from '../ui/Badge';
 
 export const TeamDashboard: React.FC = () => {
-  const { currentWorkspace, projects } = useWorkspaceStore();
+  const { currentWorkspace, projects, currentUser } = useWorkspaceStore();
+  // 워크스페이스 전체 유저가 아니라 내가 속한 프로젝트의 협업자만 표시
+  const teamMembers = getCollaboratorUsers(projects, currentUser);
   const { tasks } = useTaskStore();
 
   // 1. Task Status Statistics

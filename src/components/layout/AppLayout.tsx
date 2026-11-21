@@ -34,6 +34,7 @@ export const AppLayout: React.FC = () => {
     isCreateTaskModalOpen,
     setCreateTaskModalOpen,
     isCreateProjectModalOpen,
+    createProjectDefaultTeamId,
     setCreateProjectModalOpen,
     isCreateTeamModalOpen,
     setCreateTeamModalOpen,
@@ -105,6 +106,7 @@ export const AppLayout: React.FC = () => {
       <ProjectCreateModal
         isOpen={isCreateProjectModalOpen}
         onClose={() => setCreateProjectModalOpen(false)}
+        defaultTeamId={createProjectDefaultTeamId ?? undefined}
       />
 
       <TeamCreateModal

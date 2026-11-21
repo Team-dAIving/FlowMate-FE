@@ -4,10 +4,10 @@ import {
   FolderKanban,
   CheckSquare,
   ArrowLeft,
-  Crown,
   Calendar,
   ArrowUpRight,
   GitBranch,
+  Plus,
 } from 'lucide-react';
 import { useTeamStore } from '../../store/useTeamStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
@@ -25,7 +25,7 @@ export const TeamDetail: React.FC = () => {
   const { teams } = useTeamStore();
   const { selectedTeamId, setCurrentView, setCurrentProjectId } = useWorkspaceStore();
   const { tasks } = useTaskStore();
-  const { setSelectedTaskIdForDetail } = useUIStore();
+  const { setSelectedTaskIdForDetail, setCreateProjectModalOpen } = useUIStore();
 
   const [activeTab, setActiveTab] = useState<'projects' | 'members' | 'tasks'>('projects');
 
@@ -66,12 +66,6 @@ export const TeamDetail: React.FC = () => {
               <h1 className="text-xl font-bold text-text-primary tracking-tight">
                 {team.name}
               </h1>
-              {team.lead && (
-                <div className="flex items-center gap-1.5 text-xs text-text-secondary bg-surface-hover px-2 py-0.5 rounded-full border border-border/60">
-                  <Crown className="h-3 w-3 text-amber-500" />
-                  <span>리더: {team.lead.name}</span>
-                </div>
-              )}
             </div>
             <p className="text-xs text-text-secondary">{team.description}</p>
           </div>
@@ -95,13 +89,25 @@ export const TeamDetail: React.FC = () => {
       {/* Tab 1: Connected Projects */}
       {activeTab === 'projects' && (
         <div className="space-y-4">
-          <div className="text-xs text-text-secondary">
-            {team.name}이 현재 책임을 맡고 있는 프로젝트 목록입니다.
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-text-secondary">
+              {team.name}이 현재 책임을 맡고 있는 프로젝트 목록입니다.
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setCreateProjectModalOpen(true, team.id)}
+              className="text-xs gap-1.5"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>이 팀으로 새 프로젝트 생성</span>
+            </Button>
           </div>
 
           {(team.projects || []).length === 0 ? (
             <div className="p-12 text-center border border-dashed border-border rounded-lg bg-surface/50 text-xs text-text-muted">
               연결된 프로젝트가 없습니다.
+              <div className="mt-2 text-[11px]">위의 버튼으로 이 팀의 첫 번째 프로젝트를 생성하세요.</div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -179,7 +185,6 @@ export const TeamDetail: React.FC = () => {
           {team.members.map((member) => {
             const memberTasks = tasks.filter((t) => t.assignee?.id === member.id);
             const inProgressCount = memberTasks.filter((t) => t.status === 'IN_PROGRESS').length;
-            const isLead = member.id === team.leadId;
 
             return (
               <div key={member.id} className="p-3.5 flex items-center justify-between hover:bg-surface-hover/40 transition-colors">
@@ -188,11 +193,6 @@ export const TeamDetail: React.FC = () => {
                   <div>
                     <div className="text-xs font-bold text-text-primary flex items-center gap-1.5">
                       <span>{member.name}</span>
-                      {isLead && (
-                        <span className="text-[10px] font-mono bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 px-1.5 py-0.2 rounded border border-amber-300">
-                          Team Lead
-                        </span>
-                      )}
                     </div>
                     <div className="text-[11px] text-text-muted">
                       {member.department} · {member.email}
@@ -226,3 +226,4 @@ export const TeamDetail: React.FC = () => {
     </div>
   );
 };
+

@@ -26,12 +26,12 @@ import { Badge } from '../ui/Badge';
 import { Card } from '../ui/Card';
 import { Avatar } from '../ui/Avatar';
 import { Input, Textarea } from '../ui/Input';
-import { teamMembers } from '../../services/mockData';
+import { getProjectMemberUsers } from '../../utils/projectMembers';
 import { ActionItem, TaskPriority } from '../../types';
 import { formatDate, formatDuration } from '../../utils/formatters';
 
 export const MeetingDetail: React.FC = () => {
-  const { selectedMeetingId, setCurrentView } = useWorkspaceStore();
+  const { selectedMeetingId, setCurrentView, projects, currentUser } = useWorkspaceStore();
   const { meetings, approveActionItem, rejectActionItem, analyzeMeeting, isAnalyzing } = useMeetingStore();
   const { fetchTasks } = useTaskStore();
 
@@ -50,6 +50,9 @@ export const MeetingDetail: React.FC = () => {
 
   if (!meeting) return null;
 
+  // Action item 담당자는 회의가 속한 프로젝트의 멤버로 한정
+  const projectMembers = getProjectMemberUsers(projects.find((p) => p.id === meeting.projectId), currentUser);
+
   const actionItems = meeting.actionItems || [];
   const pendingItems = actionItems.filter((a) => a.approvalStatus === 'PENDING');
   const approvedItems = actionItems.filter((a) => a.approvalStatus === 'APPROVED');
@@ -58,7 +61,9 @@ export const MeetingDetail: React.FC = () => {
     setEditingId(item.id);
     setEditTitle(item.title);
     setEditDesc(item.description);
-    setEditAssigneeId(item.assigneeId || teamMembers[0].id);
+    setEditAssigneeId(
+      projectMembers.some((m) => m.id === item.assigneeId) ? item.assigneeId! : currentUser?.id || projectMembers[0]?.id || ''
+    );
     setEditDueDate(item.dueDate || '2026-11-25');
     setEditPriority(item.priority);
   };
@@ -74,7 +79,7 @@ export const MeetingDetail: React.FC = () => {
         title: editTitle,
         description: editDesc,
         assigneeId: editAssigneeId,
-        assigneeName: teamMembers.find((m) => m.id === editAssigneeId)?.name,
+        assigneeName: projectMembers.find((m) => m.id === editAssigneeId)?.name,
         dueDate: editDueDate,
         priority: editPriority,
       } : undefined,
@@ -273,7 +278,7 @@ export const MeetingDetail: React.FC = () => {
                               onChange={(e) => setEditAssigneeId(e.target.value)}
                               className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
                             >
-                              {teamMembers.map((m) => (
+                              {projectMembers.map((m) => (
                                 <option key={m.id} value={m.id}>
                                   {m.name}
                                 </option>

@@ -15,7 +15,8 @@ interface UIState {
   setCreateTaskModalOpen: (open: boolean) => void;
 
   isCreateProjectModalOpen: boolean;
-  setCreateProjectModalOpen: (open: boolean) => void;
+  createProjectDefaultTeamId: string | null; // 팀 상세에서 열면 해당 팀이 미리 선택됨
+  setCreateProjectModalOpen: (open: boolean, defaultTeamId?: string) => void;
 
   isCreateTeamModalOpen: boolean;
   setCreateTeamModalOpen: (open: boolean) => void;
@@ -74,7 +75,9 @@ export const useUIStore = create<UIState>((set, get) => {
     setCreateTaskModalOpen: (open) => set({ isCreateTaskModalOpen: open }),
 
     isCreateProjectModalOpen: false,
-    setCreateProjectModalOpen: (open) => set({ isCreateProjectModalOpen: open }),
+    createProjectDefaultTeamId: null,
+    setCreateProjectModalOpen: (open, defaultTeamId) =>
+      set({ isCreateProjectModalOpen: open, createProjectDefaultTeamId: open ? defaultTeamId ?? null : null }),
 
     isCreateTeamModalOpen: false,
     setCreateTeamModalOpen: (open) => set({ isCreateTeamModalOpen: open }),

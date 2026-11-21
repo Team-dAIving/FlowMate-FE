@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input, Textarea } from '../ui/Input';
 import { useTaskStore } from '../../store/useTaskStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
-import { teamMembers } from '../../services/mockData';
+import { getMyProjects, getProjectMemberUsers } from '../../utils/projectMembers';
 import { TaskPriority } from '../../types';
 
 export interface TaskCreateModalProps {
@@ -20,7 +20,29 @@ export const TaskCreateModal: React.FC<TaskCreateModalProps> = ({ isOpen, onClos
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('MEDIUM');
-  const [assigneeId, setAssigneeId] = useState(currentUser?.id || teamMembers[0]?.id || '');
+  const [assigneeId, setAssigneeId] = useState(currentUser?.id || '');
+
+  // 내가 속한 프로젝트만 선택 가능, 담당자는 선택된 프로젝트의 멤버로 한정
+  const myProjects = getMyProjects(projects, currentUser);
+  const projectMembers = getProjectMemberUsers(myProjects.find((p) => p.id === projectId), currentUser);
+
+  // Modal stays mounted — re-sync defaults on every open (currentProjectId may have changed)
+  useEffect(() => {
+    if (!isOpen) return;
+    const mine = getMyProjects(projects, currentUser);
+    const initial = mine.find((p) => p.id === currentProjectId) ? currentProjectId! : mine[0]?.id || '';
+    setProjectId(initial);
+    setAssigneeId(currentUser?.id || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  // If the selected assignee isn't in the newly selected project, fall back to a valid member
+  useEffect(() => {
+    if (!projectMembers.some((m) => m.id === assigneeId)) {
+      setAssigneeId(projectMembers.find((m) => m.id === currentUser?.id)?.id || projectMembers[0]?.id || '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, projectMembers.map((m) => m.id).join(',')]);
   const [dueDate, setDueDate] = useState('2026-11-25');
   const [estimatedHours, setEstimatedHours] = useState('8');
   const [isLoading, setIsLoading] = useState(false);
@@ -31,9 +53,9 @@ export const TaskCreateModal: React.FC<TaskCreateModalProps> = ({ isOpen, onClos
 
     setIsLoading(true);
     try {
-      const assignee = (teamMembers.find((m) => m.id === assigneeId) || currentUser) ?? undefined;
+      const assignee = (projectMembers.find((m) => m.id === assigneeId) || currentUser) ?? undefined;
       await createTask({
-        projectId: projectId || projects[0]?.id,
+        projectId: projectId || myProjects[0]?.id,
         title: title.trim(),
         description: description.trim(),
         priority,
@@ -70,7 +92,7 @@ export const TaskCreateModal: React.FC<TaskCreateModalProps> = ({ isOpen, onClos
             onChange={(e) => setProjectId(e.target.value)}
             className="w-full h-8 rounded-md border border-border bg-surface px-3 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
           >
-            {projects.map((p) => (
+            {myProjects.map((p) => (
               <option key={p.id} value={p.id}>
                 [{p.key}] {p.name}
               </option>
@@ -123,9 +145,9 @@ export const TaskCreateModal: React.FC<TaskCreateModalProps> = ({ isOpen, onClos
               onChange={(e) => setAssigneeId(e.target.value)}
               className="w-full h-8 rounded-md border border-border bg-surface px-3 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
             >
-              {teamMembers.map((m) => (
+              {projectMembers.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.name} ({m.department})
+                  {m.name}{m.department ? ` (${m.department})` : ''}
                 </option>
               ))}
             </select>

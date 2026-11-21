@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Clock,
   CheckCircle2,
@@ -9,6 +9,8 @@ import {
   GitBranch,
   Video,
   Sparkles,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTaskStore } from '../../store/useTaskStore';
@@ -25,6 +27,22 @@ export const PersonalDashboard: React.FC = () => {
   const { tasks } = useTaskStore();
   const { meetings } = useMeetingStore();
   const { setCreateTaskModalOpen, setRecordMeetingModalOpen, setSelectedTaskIdForDetail } = useUIStore();
+
+  const [codeCopied, setCodeCopied] = useState(false);
+
+  const handleCopyCode = () => {
+    if (currentUser?.userCode) {
+      navigator.clipboard
+        .writeText(currentUser.userCode)
+        .then(() => {
+          setCodeCopied(true);
+          setTimeout(() => setCodeCopied(false), 2000);
+        })
+        .catch(() => {
+          // Clipboard can be blocked (permissions / insecure context) — code is still select-all-able
+        });
+    }
+  };
 
   // My tasks
   const myTasks = tasks.filter((t) => t.assignee?.id === currentUser?.id);
@@ -70,6 +88,41 @@ export const PersonalDashboard: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* User Code Banner — for team invitations */}
+      {currentUser?.userCode && (
+        <div className="flex items-center justify-between p-3 rounded-lg border border-primary/20 bg-primary/[0.03] dark:bg-primary/[0.06]">
+          <div className="flex items-center gap-3">
+            <div className="text-[10px] font-mono font-semibold text-text-muted uppercase tracking-wider">
+              내 유저 코드
+            </div>
+            <div className="font-mono text-lg font-bold text-primary tracking-[0.2em] select-all">
+              {currentUser.userCode}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <p className="text-[11px] text-text-muted hidden sm:block">
+              팀 초대 시 이 코드를 공유하세요
+            </p>
+            <button
+              onClick={handleCopyCode}
+              className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md border border-border bg-surface hover:bg-surface-hover text-text-secondary transition-colors"
+            >
+              {codeCopied ? (
+                <>
+                  <Check className="h-3 w-3 text-emerald-500" />
+                  <span className="text-emerald-500">복사됨</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3 w-3" />
+                  <span>복사</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MY WORK Stats Cards (Section 4.3 specification) */}
       <div>

@@ -7,7 +7,15 @@ export interface User {
   avatarUrl?: string;
   role: UserRole;
   department?: string;
+  // 6자리 자동생성 코드 (예: "K7Q2XM") — 팀 초대 시 사용.
+  // 순차값(FM0001...)이면 전체 유저를 열거할 수 있으므로 서버에서 랜덤·유니크하게 생성해야 함.
+  userCode?: string;
 }
+
+// 유저 코드 조회 결과로 노출할 최소 정보 (이메일·소속 등 개인정보 제외)
+export type PublicUserProfile = Pick<User, 'id' | 'name' | 'avatarUrl' | 'userCode'>;
+
+export const USER_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 
 export interface Workspace {
   id: string;
@@ -29,8 +37,6 @@ export interface Team {
   workspaceId: string;
   name: string;
   description: string;
-  leadId: string;
-  lead?: User;
   memberIds: string[];
   members: User[];
   projectIds: string[];
