@@ -192,9 +192,16 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http:') || url.startsWith('https:')) {
       shell.openExternal(url);
-      return { action: 'deny' };
     }
-    return { action: 'allow' };
+    // Never open other schemes (file:, javascript:, custom protocols) inside an Electron window
+    return { action: 'deny' };
+  });
+
+  // The main window must only ever show the app itself; send web links to the system browser
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return;
+    event.preventDefault();
+    if (url.startsWith('http:') || url.startsWith('https:')) shell.openExternal(url);
   });
 
   if (isDev) {
