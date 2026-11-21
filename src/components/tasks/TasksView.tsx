@@ -15,7 +15,8 @@ import { TaskKanbanView } from './TaskKanbanView';
 import { TaskTimelineView } from './TaskTimelineView';
 import { Button } from '../ui/Button';
 import { getCollaboratorUsers, getProjectMemberUsers } from '../../utils/projectMembers';
-import { TaskStatus, TaskPriority } from '../../types';
+import { Task, TaskStatus, TaskPriority } from '../../types';
+import { groupTasksByProject } from '../../utils/projectTeams';
 
 export const TasksView: React.FC = () => {
   const {
@@ -54,6 +55,16 @@ export const TasksView: React.FC = () => {
     }
     return true;
   });
+
+  const taskGroups = groupTasksByProject(filteredTasks, projects);
+
+  const renderView = (list: Task[]) => (
+    <>
+      {viewMode === 'kanban' && <TaskKanbanView tasks={list} onSelectTask={setSelectedTaskIdForDetail} />}
+      {viewMode === 'list' && <TaskListView tasks={list} onSelectTask={setSelectedTaskIdForDetail} />}
+      {viewMode === 'timeline' && <TaskTimelineView tasks={list} onSelectTask={setSelectedTaskIdForDetail} />}
+    </>
+  );
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-5">
@@ -182,14 +193,22 @@ export const TasksView: React.FC = () => {
       </div>
 
       {/* Render Selected View */}
-      {viewMode === 'kanban' && (
-        <TaskKanbanView tasks={filteredTasks} onSelectTask={setSelectedTaskIdForDetail} />
-      )}
-      {viewMode === 'list' && (
-        <TaskListView tasks={filteredTasks} onSelectTask={setSelectedTaskIdForDetail} />
-      )}
-      {viewMode === 'timeline' && (
-        <TaskTimelineView tasks={filteredTasks} onSelectTask={setSelectedTaskIdForDetail} />
+      {currentProjectId || taskGroups.length === 0 ? (
+        renderView(filteredTasks)
+      ) : (
+        <div className="space-y-8">
+          {taskGroups.map((group) => (
+            <section key={group.projectId} className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+                <span>{group.project?.name ?? group.tasks[0]?.projectName ?? '알 수 없는 프로젝트'}</span>
+                <span className="text-[11px] font-mono font-normal text-text-muted">
+                  {group.tasks.length}건
+                </span>
+              </div>
+              {renderView(group.tasks)}
+            </section>
+          ))}
+        </div>
       )}
     </div>
   );

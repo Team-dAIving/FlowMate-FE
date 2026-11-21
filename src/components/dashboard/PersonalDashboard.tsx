@@ -16,6 +16,7 @@ import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTaskStore } from '../../store/useTaskStore';
 import { useMeetingStore } from '../../store/useMeetingStore';
 import { useUIStore } from '../../store/useUIStore';
+import { groupTasksByProject } from '../../utils/projectTeams';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -46,6 +47,7 @@ export const PersonalDashboard: React.FC = () => {
 
   // My tasks
   const myTasks = tasks.filter((t) => t.assignee?.id === currentUser?.id);
+  const myTaskGroups = groupTasksByProject(myTasks, projects);
   const activeTasks = myTasks.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW');
   const completedTasks = myTasks.filter((t) => t.status === 'DONE');
   const overdueTasks = myTasks.filter((t) => {
@@ -202,41 +204,60 @@ export const PersonalDashboard: React.FC = () => {
             </button>
           </div>
 
-          <div className="border border-border rounded-lg bg-surface divide-y divide-border/60 overflow-hidden shadow-subtle">
-            {myTasks.length === 0 ? (
-              <div className="p-8 text-center text-xs text-text-muted">
-                현재 할당된 업무가 없습니다.
-              </div>
-            ) : (
-              myTasks.map((task) => (
+          {myTasks.length === 0 ? (
+            <div className="border border-border rounded-lg bg-surface overflow-hidden shadow-subtle p-8 text-center text-xs text-text-muted">
+              현재 할당된 업무가 없습니다.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {myTaskGroups.map((group) => (
                 <div
-                  key={task.id}
-                  onClick={() => setSelectedTaskIdForDetail(task.id)}
-                  className="p-3 flex items-center justify-between gap-3 hover:bg-surface-hover cursor-pointer transition-colors"
+                  key={group.projectId}
+                  className="border border-border rounded-lg bg-surface overflow-hidden shadow-subtle"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="text-xs font-medium text-text-primary truncate">
-                      {task.title}
+                  <div className="px-3 py-2 bg-surface-hover/50 border-b border-border/60 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-text-primary min-w-0">
+                      <span className="truncate">
+                        {group.project?.name ?? group.tasks[0]?.projectName ?? '알 수 없는 프로젝트'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-text-muted shrink-0">
+                      {group.tasks.length}건
                     </span>
                   </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    {task.githubIssue && (
-                      <span
-                        title={`GitHub Issue #${task.githubIssue.number}`}
-                        className="text-[10px] font-mono text-text-muted hover:text-text-primary flex items-center gap-1 bg-surface-hover px-1.5 py-0.5 rounded border border-border"
+                  <div className="divide-y divide-border/60">
+                    {group.tasks.map((task) => (
+                      <div
+                        key={task.id}
+                        onClick={() => setSelectedTaskIdForDetail(task.id)}
+                        className="p-3 flex items-center justify-between gap-3 hover:bg-surface-hover cursor-pointer transition-colors"
                       >
-                        <GitBranch className="h-2.5 w-2.5 text-text-muted" />
-                        #{task.githubIssue.number}
-                      </span>
-                    )}
-                    <Badge priority={task.priority} />
-                    <Badge status={task.status} />
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-xs font-medium text-text-primary truncate">
+                            {task.title}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {task.githubIssue && (
+                            <span
+                              title={`GitHub Issue #${task.githubIssue.number}`}
+                              className="text-[10px] font-mono text-text-muted hover:text-text-primary flex items-center gap-1 bg-surface-hover px-1.5 py-0.5 rounded border border-border"
+                            >
+                              <GitBranch className="h-2.5 w-2.5 text-text-muted" />
+                              #{task.githubIssue.number}
+                            </span>
+                          )}
+                          <Badge priority={task.priority} />
+                          <Badge status={task.status} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
 
           {/* Project Progress preview */}
           <div className="pt-2">
