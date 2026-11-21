@@ -96,6 +96,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
     if (isLoading) return;
     // Mirror backend validation so the user gets immediate feedback
     if (!name.trim()) return setSubmitError('팀 이름을 입력해주세요.');
+    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) return setSubmitError('색상은 #RRGGBB 형식으로 입력해주세요. (예: #4F46E5)');
     if (name.trim().length > TEAM_LIMITS.NAME_MAX)
       return setSubmitError(`팀 이름은 ${TEAM_LIMITS.NAME_MAX}자 이하여야 합니다.`);
     if (description.trim().length > TEAM_LIMITS.DESCRIPTION_MAX)
@@ -127,6 +128,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
     }
   };
 
+  const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/;
   const COLOR_OPTIONS = ['#4F46E5', '#059669', '#D97706', '#DC2626', '#7C3AED', '#2563EB', '#DB2777'];
 
   return (
@@ -139,33 +141,58 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Team Name + Color */}
-        <div className="grid grid-cols-4 gap-3">
-          <div className="col-span-3">
-            <Input
-              label="팀 이름 (Team Name)"
-              placeholder="예: Core Frontend Team, AI Research Squad"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={TEAM_LIMITS.NAME_MAX}
-              required
-            />
-          </div>
+        <div className="space-y-4">
+          <Input
+            label="팀 이름 (Team Name)"
+            placeholder="예: Core Frontend Team, AI Research Squad"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={TEAM_LIMITS.NAME_MAX}
+            required
+          />
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5">
               테마 색상
             </label>
-            <div className="flex items-center gap-1.5 pt-1">
-              {COLOR_OPTIONS.slice(0, 4).map((c) => (
+            <div className="flex flex-wrap items-center gap-2">
+              {COLOR_OPTIONS.map((c) => (
                 <button
                   key={c}
                   type="button"
                   onClick={() => setColor(c)}
+                  title={c}
                   className={`w-6 h-6 rounded-full border transition-all ${
-                    color === c ? 'ring-2 ring-primary ring-offset-2 scale-110' : 'border-transparent'
+                    color.toUpperCase() === c ? 'ring-2 ring-primary ring-offset-2 scale-110' : 'border-transparent'
                   }`}
                   style={{ backgroundColor: c }}
                 />
               ))}
+
+              {/* Custom color: native picker + #RRGGBB text */}
+              <span className="w-px h-5 bg-border mx-1" />
+              <input
+                type="color"
+                value={HEX_COLOR.test(color) ? color : '#4F46E5'}
+                onChange={(e) => setColor(e.target.value.toUpperCase())}
+                aria-label="직접 색상 선택"
+                title="직접 색상 선택"
+                className="w-7 h-7 p-0 rounded border border-border bg-transparent cursor-pointer"
+              />
+              <input
+                type="text"
+                value={color}
+                onChange={(e) => {
+                  const v = e.target.value.toUpperCase();
+                  setColor(v.startsWith('#') ? v : `#${v}`);
+                }}
+                maxLength={7}
+                spellCheck={false}
+                aria-label="색상 코드"
+                aria-invalid={!HEX_COLOR.test(color)}
+                className={`w-24 h-7 px-2 rounded-md border bg-surface text-xs font-mono text-text-primary focus:outline-none focus:ring-1 focus:ring-primary ${
+                  HEX_COLOR.test(color) ? 'border-border' : 'border-red-400'
+                }`}
+              />
             </div>
           </div>
         </div>
