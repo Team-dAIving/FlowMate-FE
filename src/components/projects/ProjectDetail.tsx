@@ -47,6 +47,7 @@ import { TaskTimelineView } from '../tasks/TaskTimelineView';
 import { formatDate } from '../../utils/formatters';
 import { getProjectLeader } from '../../utils/projectLeader';
 import { api } from '../../services/api';
+import { ProjectIdeButtons } from './ProjectIdeButtons';
 
 export const ProjectDetail: React.FC = () => {
   const { currentProjectId, projects, setCurrentView, fetchProjects } = useWorkspaceStore();
@@ -159,6 +160,7 @@ export const ProjectDetail: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <ProjectIdeButtons projectId={project.id} />
           {project.githubRepo && (
             <a
               href={project.githubRepo.htmlUrl}

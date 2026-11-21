@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showNotification: (title, body) => {
     ipcRenderer.send('show-notification', { title, body });
   },
+  openInIde: (url) => ipcRenderer.send('open-in-ide', url),
+  openInIntellij: (projectPath) => ipcRenderer.invoke('open-intellij', projectPath),
   minimizeWindow: () => ipcRenderer.send('window-minimize'),
   maximizeWindow: () => ipcRenderer.send('window-maximize'),
   closeWindow: () => ipcRenderer.send('window-close'),

@@ -19,6 +19,7 @@ import { useUIStore } from '../../store/useUIStore';
 import { useTeamStore } from '../../store/useTeamStore';
 import { groupTasksByProject, getProjectTeams } from '../../utils/projectTeams';
 import { getProjectLeader } from '../../utils/projectLeader';
+import { ProjectIdeButtons } from '../projects/ProjectIdeButtons';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -315,6 +316,8 @@ export const PersonalDashboard: React.FC = () => {
                         리더: {leader ? leader.name : '미지정'}
                       </span>
                     </div>
+
+                    <ProjectIdeButtons projectId={p.id} />
                   </Card>
                 );
               })}

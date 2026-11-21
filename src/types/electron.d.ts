@@ -2,6 +2,8 @@ export interface ElectronAPI {
   isElectron: boolean;
   platform: string;
   showNotification: (title: string, body: string) => void;
+  openInIde: (url: string) => void;
+  openInIntellij: (projectPath: string) => Promise<{ ok: boolean; message?: string }>;
   minimizeWindow: () => void;
   maximizeWindow: () => void;
   closeWindow: () => void;
