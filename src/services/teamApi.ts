@@ -78,11 +78,13 @@ export const teamApi = {
   // POST /api/teams
   createTeam: async (input: CreateTeamInput): Promise<Team> => {
     // Backend ids are Long. Anything non-numeric (e.g. a mock user id) can't be sent.
+    // The server adds the logged-in user itself, so memberUserIds holds only the invitees.
+    // A team needs at least 2 people (creator + 1 invitee).
     const memberUserIds = Array.from(new Set(input.memberIds))
       .map(Number)
       .filter((n) => Number.isSafeInteger(n) && n > 0);
     if (memberUserIds.length === 0) {
-      throw new ApiError(400, '팀원을 1명 이상 추가해주세요.');
+      throw new ApiError(400, '팀은 본인을 포함해 2명 이상이어야 합니다. 팀원을 1명 이상 초대해주세요.');
     }
     const dto = await http<TeamDto>('/api/teams', {
       method: 'POST',

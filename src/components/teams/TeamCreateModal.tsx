@@ -101,11 +101,14 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
     if (description.trim().length > TEAM_LIMITS.DESCRIPTION_MAX)
       return setSubmitError(`팀 설명은 ${TEAM_LIMITS.DESCRIPTION_MAX}자 이하여야 합니다.`);
 
+    // The server adds the logged-in user to the team automatically, so only invitees are sent.
     const memberIds = Array.from(
-      new Set([...(currentUser ? [currentUser.id] : []), ...addedMembers.map((m) => m.id)])
+      new Set(addedMembers.map((m) => m.id).filter((id) => id !== currentUser?.id))
     );
-    if (memberIds.length === 0) return setSubmitError('팀원을 1명 이상 추가해주세요.');
-    if (memberIds.length > TEAM_LIMITS.MEMBERS_MAX)
+    // A team needs the creator (added by the server) plus at least one invitee
+    if (memberIds.length < 1) return setSubmitError('팀은 본인 포함 2명 이상이어야 합니다. 유저 코드로 팀원을 초대해주세요.');
+    // +1 for the creator the server adds
+    if (memberIds.length + 1 > TEAM_LIMITS.MEMBERS_MAX)
       return setSubmitError(`팀원은 최대 ${TEAM_LIMITS.MEMBERS_MAX}명까지 가능합니다.`);
 
     setIsLoading(true);
@@ -261,7 +264,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
           <Button type="button" variant="outline" size="sm" onClick={onClose}>
             취소
           </Button>
-          <Button type="submit" size="sm" isLoading={isLoading}>
+          <Button type="submit" size="sm" isLoading={isLoading} disabled={addedMembers.every((m) => m.id === currentUser?.id)}>
             팀 생성
           </Button>
         </div>
