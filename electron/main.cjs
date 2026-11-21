@@ -125,6 +125,51 @@ function isTrustedSender(event) {
   return Boolean(mainWindow && event.sender === mainWindow.webContents && frame && isAppUrl(frame.url));
 }
 
+// ---- flowmate:// deep link (GitHub OAuth callback) ----
+const PROTOCOL = 'flowmate';
+let pendingDeepLink = null;
+
+if (process.defaultApp && process.argv.length >= 2) {
+  // Dev run (electron electron/main.cjs): the OS must launch electron with our script path
+  app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL);
+}
+
+// Only the OAuth callback is accepted; any other flowmate:// link is dropped.
+// (Whether a login was actually started is checked in the renderer, see useAuthStore.)
+const OAUTH_CALLBACK_PREFIX = `${PROTOCOL}://oauth/callback`;
+const isOAuthCallback = (a) =>
+  typeof a === 'string' &&
+  a.length <= 8192 &&
+  (a === OAUTH_CALLBACK_PREFIX || a.startsWith(`${OAUTH_CALLBACK_PREFIX}?`) || a.startsWith(`${OAUTH_CALLBACK_PREFIX}/?`));
+const findDeepLink = (argv) => argv.find(isOAuthCallback);
+
+function handleDeepLink(url) {
+  if (!isOAuthCallback(url)) return;
+  if (mainWindow && !mainWindow.webContents.isLoading()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('oauth-callback', url);
+  } else {
+    pendingDeepLink = url; // window not ready yet: delivered on did-finish-load
+  }
+}
+
+// Windows/Linux: a second launch (triggered by the flowmate:// link) passes the URL to the running instance
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => handleDeepLink(findDeepLink(argv)));
+}
+// macOS
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+pendingDeepLink = findDeepLink(process.argv) || null;
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1360,
@@ -158,6 +203,13 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (pendingDeepLink) {
+      mainWindow.webContents.send('oauth-callback', pendingDeepLink);
+      pendingDeepLink = null;
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;

@@ -8,6 +8,7 @@ export interface ElectronAPI {
   maximizeWindow: () => void;
   closeWindow: () => void;
   onCommandPalette: (callback: () => void) => () => void;
+  onOAuthCallback: (callback: (url: string) => void) => () => void;
   onMeetingShortcut: (callback: () => void) => () => void;
 }
 

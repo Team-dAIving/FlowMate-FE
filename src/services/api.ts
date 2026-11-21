@@ -25,6 +25,7 @@ import {
 } from './mockData';
 import { USE_REAL_API } from './http';
 import { teamApi } from './teamApi';
+import { authApi } from './authApi';
 
 const STORAGE_KEYS = {
   USER: 'flowmate_user',
@@ -122,6 +123,7 @@ function setStored<T>(key: string, value: T): void {
 export const api = {
   // 1. Auth & User
   getCurrentUser: async (): Promise<User> => {
+    if (USE_REAL_API) return (await authApi.getMe()).user;
     return getStored<User>(STORAGE_KEYS.USER, currentUser);
   },
 

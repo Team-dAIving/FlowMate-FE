@@ -10,7 +10,10 @@ import {
   GitBranch,
   Sparkles,
   Layers,
+  LogOut,
 } from 'lucide-react';
+import { useAuthStore } from '../../store/useAuthStore';
+import { USE_REAL_API } from '../../services/http';
 import { useWorkspaceStore, AppView } from '../../store/useWorkspaceStore';
 import { useTeamStore } from '../../store/useTeamStore';
 import { useUIStore } from '../../store/useUIStore';
@@ -30,6 +33,7 @@ export const Sidebar: React.FC = () => {
   } = useWorkspaceStore();
 
   const { teams } = useTeamStore();
+  const logout = useAuthStore((s) => s.logout);
   const { setCreateTaskModalOpen, setCreateProjectModalOpen, setCreateTeamModalOpen } = useUIStore();
 
   const navItems: { view: AppView; label: string; icon: React.ReactNode }[] = [
@@ -212,9 +216,20 @@ export const Sidebar: React.FC = () => {
               </div>
             </div>
           </div>
-          <Badge variant="default" className="text-[9px] px-1 py-0 uppercase">
-            {currentUser?.role || 'MEMBER'}
-          </Badge>
+          {USE_REAL_API ? (
+            <button
+              type="button"
+              onClick={() => logout()}
+              title="로그아웃"
+              className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <Badge variant="default" className="text-[9px] px-1 py-0 uppercase">
+              {currentUser?.role || 'MEMBER'}
+            </Badge>
+          )}
         </div>
       </div>
     </aside>

@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('toggle-command-palette', handler);
     return () => ipcRenderer.removeListener('toggle-command-palette', handler);
   },
+  // flowmate://oauth/callback?... forwarded from the main process after the browser login
+  onOAuthCallback: (callback) => {
+    const handler = (_event, url) => callback(url);
+    ipcRenderer.on('oauth-callback', handler);
+    return () => ipcRenderer.removeListener('oauth-callback', handler);
+  },
   onMeetingShortcut: (callback) => {
     const handler = () => callback();
     ipcRenderer.on('trigger-meeting-recording', handler);

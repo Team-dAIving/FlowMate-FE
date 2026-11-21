@@ -14,11 +14,17 @@ export class ApiError extends Error {
   }
 }
 
-// Auth scheme is not decided with the backend yet. Whoever owns login plugs the token in here,
+// Auth: JWT sent in the "Authorization: Bearer <token>" header. The auth store plugs the token in here,
 // so this module never decides where tokens are stored.
 let authTokenProvider: () => string | null = () => null;
 export function setAuthTokenProvider(provider: () => string | null) {
   authTokenProvider = provider;
+}
+
+// Called when the server rejects the token (401), so the app can drop it and show the login screen.
+let unauthorizedHandler: () => void = () => {};
+export function setUnauthorizedHandler(handler: () => void) {
+  unauthorizedHandler = handler;
 }
 
 function extractMessage(body: unknown): string | undefined {
@@ -58,6 +64,7 @@ export async function http<T>(path: string, { json, headers, ...init }: HttpOpti
   }
 
   if (!res.ok) {
+    if (res.status === 401 && token) unauthorizedHandler();
     throw new ApiError(res.status, extractMessage(body) ?? `요청에 실패했습니다. (HTTP ${res.status})`, body);
   }
   return body as T;
