@@ -1,4 +1,4 @@
-import { User, Workspace, Project, Task, Meeting, Notification, Team } from '../types';
+import { User, Workspace, Project, Task, Meeting, Notification } from '../types';
 
 export const currentUser: User = {
   id: 'user-1',
@@ -132,36 +132,41 @@ export const initialProjects: Project[] = [
   },
 ];
 
-export const initialTeams: Team[] = [
+// Mock-only storage shape for teams (ids referencing users/projects). Real data comes from GET /api/teams.
+export interface MockTeamRecord {
+  id: string;
+  name: string;
+  description: string;
+  memberIds: string[];
+  projectIds: string[];
+  color?: string;
+  createdAt: string;
+}
+
+export const initialTeams: MockTeamRecord[] = [
   {
     id: 'team-1',
-    workspaceId: 'ws-flowmate',
     name: 'Frontend Core Team',
     description: 'Electron 데스크톱 런타임, React 컴포넌트 시스템 및 사용자 경험(UX) 개발',
     memberIds: ['user-1', 'user-3', 'user-4'],
-    members: [teamMembers[0], teamMembers[2], teamMembers[3]],
     projectIds: ['proj-1'],
     color: '#4F46E5',
     createdAt: '2026-10-05T09:00:00Z',
   },
   {
     id: 'team-2',
-    workspaceId: 'ws-flowmate',
     name: 'Backend & Cloud Team',
     description: 'Spring Boot REST API, PostgreSQL 데이터베이스, GitHub 연동 및 AWS 인프라 구성',
     memberIds: ['user-2', 'user-5'],
-    members: [teamMembers[1], teamMembers[4]],
     projectIds: ['proj-1', 'proj-3'],
     color: '#059669',
     createdAt: '2026-10-05T09:30:00Z',
   },
   {
     id: 'team-3',
-    workspaceId: 'ws-flowmate',
     name: 'AI / ML Squad',
     description: 'Amazon Transcribe STT 음성인식 최적화 및 Bedrock 기반 회의록 요약 / Action Items 추출 모델',
     memberIds: ['user-1', 'user-2', 'user-5'],
-    members: [teamMembers[0], teamMembers[1], teamMembers[4]],
     projectIds: ['proj-2'],
     color: '#D97706',
     createdAt: '2026-10-10T14:00:00Z',

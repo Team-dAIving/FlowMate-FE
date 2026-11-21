@@ -4,7 +4,7 @@ import { Button } from '../ui/Button';
 import { Input, Textarea } from '../ui/Input';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTeamStore } from '../../store/useTeamStore';
-import { ProjectType } from '../../types';
+import { ProjectType, User } from '../../types';
 import { api } from '../../services/api';
 
 export interface ProjectCreateModalProps {
@@ -61,7 +61,16 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
         // 생성자는 프로젝트 리더(OWNER)로 지정 (리더는 팀이 아니라 프로젝트 단위)
         members: (() => {
           const team = teams.find((t) => t.id === selectedTeamId);
-          const users = team ? team.members : currentUser ? [currentUser] : [];
+          // Team responses only carry { id, name, avatarUrl } — prefer the full currentUser object for self
+          const users: User[] = team
+            ? team.members.map((m) =>
+                m.id === currentUser?.id
+                  ? currentUser
+                  : { id: m.id, name: m.name, avatarUrl: m.avatarUrl, email: '', role: 'MEMBER' as const }
+              )
+            : currentUser
+            ? [currentUser]
+            : [];
           return users.map((u) => ({ user: u, role: u.id === currentUser?.id ? 'OWNER' as const : 'MEMBER' as const }));
         })(),
         githubRepo: repoName.trim()

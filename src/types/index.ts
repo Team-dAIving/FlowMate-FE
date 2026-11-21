@@ -32,18 +32,45 @@ export interface WorkspaceMember {
   joinedAt: string;
 }
 
+// 팀 응답에 포함되는 멤버 요약 (백엔드: { userId, nickname, avatarUrl })
+export interface TeamMember {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+}
+
+// 팀 응답에 포함되는 프로젝트 요약 (백엔드: { id, name, subject })
+export interface TeamProjectSummary {
+  id: string;
+  name: string;
+  key: string;
+}
+
 export interface Team {
   id: string;
-  workspaceId: string;
   name: string;
   description: string;
   memberIds: string[];
-  members: User[];
+  members: TeamMember[];
+  memberCount: number;
   projectIds: string[];
-  projects?: Project[];
+  projects: TeamProjectSummary[];
   color?: string;
-  createdAt: string;
+  inProgressTaskCount?: number; // 백엔드가 계산한 IN_PROGRESS 업무 수
 }
+
+export interface CreateTeamInput {
+  name: string;
+  description?: string;
+  color: string; // #RRGGBB
+  memberIds: string[];
+}
+
+export const TEAM_LIMITS = {
+  NAME_MAX: 100,
+  DESCRIPTION_MAX: 2000,
+  MEMBERS_MAX: 100,
+} as const;
 
 export type ProjectType = 'WEB' | 'APP' | 'AI' | 'EMBEDDED' | 'OTHER';
 

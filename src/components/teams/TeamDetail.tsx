@@ -16,21 +16,36 @@ import { useUIStore } from '../../store/useUIStore';
 import { Tabs } from '../ui/Tabs';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
-import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { TaskListView } from '../tasks/TaskListView';
 import { formatDate } from '../../utils/formatters';
 
 export const TeamDetail: React.FC = () => {
   const { teams } = useTeamStore();
-  const { selectedTeamId, setCurrentView, setCurrentProjectId } = useWorkspaceStore();
+  const { selectedTeamId, setCurrentView, setCurrentProjectId, projects } = useWorkspaceStore();
   const { tasks } = useTaskStore();
   const { setSelectedTaskIdForDetail, setCreateProjectModalOpen } = useUIStore();
 
   const [activeTab, setActiveTab] = useState<'projects' | 'members' | 'tasks'>('projects');
 
-  const team = teams.find((t) => t.id === selectedTeamId) || teams[0];
-  if (!team) return null;
+  // Don't silently fall back to another team when the selected one is gone (e.g. left/removed)
+  const team = teams.find((t) => t.id === selectedTeamId);
+  if (!team) {
+    return (
+      <div className="p-6 max-w-6xl mx-auto text-xs text-text-muted">
+        팀을 찾을 수 없습니다.{' '}
+        <button onClick={() => setCurrentView('teams')} className="text-primary underline">
+          팀 목록으로 돌아가기
+        </button>
+      </div>
+    );
+  }
+
+  // Team API returns only { id, name, key } per project — enrich with locally loaded project details if any
+  const teamProjects = team.projects.map((summary) => ({
+    summary,
+    detail: projects.find((p) => p.id === summary.id),
+  }));
 
   // Tasks assigned to this team's members
   const memberIdSet = new Set(team.memberIds || []);
@@ -40,7 +55,7 @@ export const TeamDetail: React.FC = () => {
 
   const tabs = [
     { id: 'projects', label: '담당 프로젝트 (Projects)', count: team.projects?.length || 0 },
-    { id: 'members', label: '소속 팀원 (Members)', count: team.members.length },
+    { id: 'members', label: '소속 팀원 (Members)', count: team.memberCount },
     { id: 'tasks', label: '팀 업무 현황 (Team Tasks)', count: teamTasks.length },
   ];
 
@@ -111,7 +126,7 @@ export const TeamDetail: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {team.projects?.map((project) => {
+              {teamProjects.map(({ summary: project, detail }) => {
                 const projTasks = tasks.filter((t) => t.projectId === project.id);
                 const projTeamTasks = projTasks.filter(
                   (t) => t.assignee && memberIdSet.has(t.assignee.id)
@@ -139,30 +154,32 @@ export const TeamDetail: React.FC = () => {
                       <ArrowUpRight className="h-4 w-4 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
 
-                    <p className="text-xs text-text-secondary line-clamp-2">
-                      {project.description}
-                    </p>
+                    {detail?.description && (
+                      <p className="text-xs text-text-secondary line-clamp-2">{detail.description}</p>
+                    )}
 
                     {/* Progress */}
+                    {detail && (
                     <div className="space-y-1 pt-1">
                       <div className="flex items-center justify-between text-[11px] font-mono">
                         <span className="text-text-muted">프로젝트 전체 진행률</span>
-                        <span className="font-bold text-text-primary">{project.progress}%</span>
+                        <span className="font-bold text-text-primary">{detail.progress}%</span>
                       </div>
                       <div className="w-full bg-border/60 h-1.5 rounded-full overflow-hidden">
                         <div
                           className="bg-primary h-full rounded-full transition-all duration-300"
-                          style={{ width: `${project.progress}%` }}
+                          style={{ width: `${detail.progress}%` }}
                         />
                       </div>
                     </div>
+                    )}
 
                     <div className="flex items-center justify-between text-[11px] font-mono text-text-muted pt-2 border-t border-border/50">
                       <span>우리 팀 담당 업무: {projTeamTasks.length}건</span>
-                      {project.githubRepo && (
+                      {detail?.githubRepo && (
                         <span className="flex items-center gap-1 text-text-secondary">
                           <GitBranch className="h-3 w-3" />
-                          <span>{project.githubRepo.name}</span>
+                          <span>{detail.githubRepo.name}</span>
                         </span>
                       )}
                     </div>
@@ -179,7 +196,7 @@ export const TeamDetail: React.FC = () => {
         <div className="border border-border rounded-lg bg-surface divide-y divide-border/60 overflow-hidden shadow-subtle max-w-3xl">
           <div className="p-3 bg-surface-hover/50 text-[11px] font-mono font-semibold text-text-muted flex items-center justify-between">
             <span>MEMBER</span>
-            <span>ASSIGNED TASKS & ROLE</span>
+            <span>ASSIGNED TASKS</span>
           </div>
 
           {team.members.map((member) => {
@@ -194,9 +211,6 @@ export const TeamDetail: React.FC = () => {
                     <div className="text-xs font-bold text-text-primary flex items-center gap-1.5">
                       <span>{member.name}</span>
                     </div>
-                    <div className="text-[11px] text-text-muted">
-                      {member.department} · {member.email}
-                    </div>
                   </div>
                 </div>
 
@@ -204,9 +218,6 @@ export const TeamDetail: React.FC = () => {
                   <span className="text-text-secondary">
                     진행 중: <strong className="text-blue-600 font-bold">{inProgressCount}</strong> / 전체 {memberTasks.length}건
                   </span>
-                  <Badge variant="default" className="text-[10px] uppercase">
-                    {member.role}
-                  </Badge>
                 </div>
               </div>
             );

@@ -10,6 +10,7 @@ import {
   Team,
   PublicUserProfile,
   USER_CODE_PATTERN,
+  CreateTeamInput,
 } from '../types';
 import {
   currentUser,
@@ -20,7 +21,10 @@ import {
   initialNotifications,
   initialTeams,
   teamMembers,
+  MockTeamRecord,
 } from './mockData';
+import { USE_REAL_API } from './http';
+import { teamApi } from './teamApi';
 
 const STORAGE_KEYS = {
   USER: 'flowmate_user',
@@ -69,6 +73,33 @@ function initStorage() {
 }
 
 initStorage();
+
+// Shape a mock team record like the backend's GET /api/teams response
+function mockRecordToTeam(t: MockTeamRecord, projects: Project[], tasks: Task[]): Team {
+  const members = (t.memberIds || [])
+    .map((id) => teamMembers.find((m) => m.id === id))
+    .filter((m): m is User => Boolean(m))
+    .map((m) => ({ id: m.id, name: m.name, avatarUrl: m.avatarUrl }));
+  const teamProjects = (t.projectIds || [])
+    .map((pid) => projects.find((p) => p.id === pid))
+    .filter((p): p is Project => Boolean(p))
+    .map((p) => ({ id: p.id, name: p.name, key: p.key }));
+  const memberIdSet = new Set(members.map((m) => m.id));
+  return {
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    color: t.color,
+    members,
+    memberIds: members.map((m) => m.id),
+    memberCount: members.length,
+    projects: teamProjects,
+    projectIds: teamProjects.map((p) => p.id),
+    inProgressTaskCount: tasks.filter(
+      (task) => task.status === 'IN_PROGRESS' && task.assignee && memberIdSet.has(task.assignee.id)
+    ).length,
+  };
+}
 
 function getStored<T>(key: string, fallback: T): T {
   try {
@@ -140,19 +171,18 @@ export const api = {
   },
 
   // 3-1. Teams
-  // Only teams the current user belongs to — other people's teams must not be visible.
-  // (Real backend must enforce this server-side; filtering here is only for the mock.)
+  // VITE_API_BASE_URL set → backend (/api/teams, /api/users/code/{code}); otherwise local mock.
+  // Only teams the current user belongs to are returned — the backend must enforce this server-side.
   getTeams: async (): Promise<Team[]> => {
+    if (USE_REAL_API) return teamApi.getTeams();
+
     const me = getStored<User>(STORAGE_KEYS.USER, currentUser);
-    const teams = getStored<Team[]>(STORAGE_KEYS.TEAMS, initialTeams).filter((t) =>
+    const records = getStored<MockTeamRecord[]>(STORAGE_KEYS.TEAMS, initialTeams).filter((t) =>
       (t.memberIds || []).includes(me.id)
     );
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
-    return teams.map((t) => ({
-      ...t,
-      members: (t.memberIds || []).map((id) => teamMembers.find((m) => m.id === id)!).filter(Boolean),
-      projects: (t.projectIds || []).map((pid) => projects.find((p) => p.id === pid)!).filter(Boolean),
-    }));
+    const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
+    return records.map((t) => mockRecordToTeam(t, projects, tasks));
   },
 
   getTeamById: async (id: string): Promise<Team | undefined> => {
@@ -160,49 +190,55 @@ export const api = {
     return teams.find((t) => t.id === id);
   },
 
-  createTeam: async (teamData: Omit<Team, 'id' | 'createdAt' | 'members' | 'projects'>): Promise<Team> => {
-    const teams = getStored<Team[]>(STORAGE_KEYS.TEAMS, initialTeams);
+  createTeam: async (input: CreateTeamInput): Promise<Team> => {
+    if (USE_REAL_API) return teamApi.createTeam(input);
+
+    const records = getStored<MockTeamRecord[]>(STORAGE_KEYS.TEAMS, initialTeams);
     const me = getStored<User>(STORAGE_KEYS.USER, currentUser);
     // Creator is always a member; drop duplicates and unknown ids
-    const memberIds = Array.from(new Set([me.id, ...(teamData.memberIds || [])])).filter((mid) =>
+    const memberIds = Array.from(new Set([me.id, ...(input.memberIds || [])])).filter((mid) =>
       teamMembers.some((m) => m.id === mid)
     );
-    const newTeam: Team = {
-      ...teamData,
+    const record: MockTeamRecord = {
       id: `team-${Date.now()}`,
+      name: input.name.trim(),
+      description: input.description?.trim() || '',
       memberIds,
-      members: memberIds.map((mid) => teamMembers.find((m) => m.id === mid)!).filter(Boolean),
-      projectIds: teamData.projectIds || [],
+      projectIds: [],
+      color: input.color,
       createdAt: new Date().toISOString(),
     };
-    const updated = [newTeam, ...teams];
-    setStored(STORAGE_KEYS.TEAMS, updated);
-    return newTeam;
+    setStored(STORAGE_KEYS.TEAMS, [record, ...records]);
+    return mockRecordToTeam(
+      record,
+      getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects),
+      getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks)
+    );
   },
 
-  updateTeam: async (id: string, updateData: Partial<Team>): Promise<Team> => {
-    const teams = getStored<Team[]>(STORAGE_KEYS.TEAMS, initialTeams);
-    const index = teams.findIndex((t) => t.id === id);
-    if (index === -1) throw new Error('Team not found');
-    teams[index] = { ...teams[index], ...updateData };
-    setStored(STORAGE_KEYS.TEAMS, teams);
-    return teams[index];
-  },
-
-  // Link a project to a team using fresh stored data (no stale UI state, no duplicate ids)
-  linkProjectToTeam: async (teamId: string, projectId: string): Promise<Team> => {
+  // Link a project to a team. No backend endpoint exists yet (requested), so real mode is a no-op.
+  linkProjectToTeam: async (teamId: string, projectId: string): Promise<void> => {
+    if (USE_REAL_API) {
+      console.warn('[api] 프로젝트-팀 연결 API가 아직 없어 연결을 건너뜁니다.', { teamId, projectId });
+      return;
+    }
     const me = getStored<User>(STORAGE_KEYS.USER, currentUser);
-    const teams = getStored<Team[]>(STORAGE_KEYS.TEAMS, initialTeams);
-    const team = teams.find((t) => t.id === teamId);
-    if (!team) throw new Error('Team not found');
-    if (!(team.memberIds || []).includes(me.id)) throw new Error('Not a member of this team');
-    const projectIds = Array.from(new Set([...(team.projectIds || []), projectId]));
-    return api.updateTeam(teamId, { projectIds });
+    const records = getStored<MockTeamRecord[]>(STORAGE_KEYS.TEAMS, initialTeams);
+    const index = records.findIndex((t) => t.id === teamId);
+    if (index === -1) throw new Error('Team not found');
+    if (!(records[index].memberIds || []).includes(me.id)) throw new Error('Not a member of this team');
+    records[index] = {
+      ...records[index],
+      projectIds: Array.from(new Set([...(records[index].projectIds || []), projectId])),
+    };
+    setStored(STORAGE_KEYS.TEAMS, records);
   },
 
   // Find a user by their 6-character user code (for team invitations).
   // Returns only public fields — email/department must not leak to someone who just guessed a code.
   findUserByCode: async (code: string): Promise<PublicUserProfile | null> => {
+    if (USE_REAL_API) return teamApi.findUserByCode(code);
+
     const normalizedCode = code.trim().toUpperCase();
     if (!USER_CODE_PATTERN.test(normalizedCode)) return null;
     const found = teamMembers.find((m) => m.userCode?.toUpperCase() === normalizedCode);

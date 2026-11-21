@@ -9,7 +9,7 @@ import { Button } from '../ui/Button';
 import { Avatar } from '../ui/Avatar';
 
 export const TeamList: React.FC = () => {
-  const { teams } = useTeamStore();
+  const { teams, isLoading, error, fetchTeams } = useTeamStore();
   const { setCurrentView, setSelectedTeamId } = useWorkspaceStore();
   const { tasks } = useTaskStore();
   const { setCreateTeamModalOpen } = useUIStore();
@@ -44,13 +44,29 @@ export const TeamList: React.FC = () => {
         </Button>
       </div>
 
+      {error && (
+        <div role="alert" className="flex items-center justify-between p-3 rounded-md border border-red-300 bg-red-50 dark:bg-red-950/30 text-xs text-red-600">
+          <span>팀 목록을 불러오지 못했습니다: {error}</span>
+          <Button size="sm" variant="outline" onClick={() => fetchTeams()} className="text-xs">
+            다시 시도
+          </Button>
+        </div>
+      )}
+
+      {!error && !isLoading && teams.length === 0 && (
+        <div className="p-12 text-center border border-dashed border-border rounded-lg bg-surface/50 text-xs text-text-muted">
+          아직 소속된 팀이 없습니다. 새 팀을 만들고 유저 코드로 팀원을 초대해보세요.
+        </div>
+      )}
+
       {/* Grid of Teams */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {teams.map((team) => {
-          // Calculate tasks belonging to this team's members
+          // Prefer the server-computed IN_PROGRESS count; fall back to local tasks (mock mode)
           const memberIdSet = new Set(team.memberIds || []);
-          const teamTasks = tasks.filter((t) => t.assignee && memberIdSet.has(t.assignee.id));
-          const activeCount = teamTasks.filter((t) => t.status !== 'DONE').length;
+          const activeCount =
+            team.inProgressTaskCount ??
+            tasks.filter((t) => t.status === 'IN_PROGRESS' && t.assignee && memberIdSet.has(t.assignee.id)).length;
 
           return (
             <Card
@@ -68,7 +84,7 @@ export const TeamList: React.FC = () => {
                       style={{ backgroundColor: team.color || '#4F46E5' }}
                     />
                     <span className="text-xs font-mono font-semibold text-text-muted">
-                      {team.members.length}명 소속
+                      {team.memberCount}명 소속
                     </span>
                   </div>
                 </div>
@@ -120,9 +136,9 @@ export const TeamList: React.FC = () => {
                       className="border-2 border-surface"
                     />
                   ))}
-                  {team.members.length > 4 && (
+                  {team.memberCount > 4 && (
                     <span className="w-5 h-5 rounded-full bg-surface-hover border border-border text-[9px] font-mono flex items-center justify-center text-text-muted">
-                      +{team.members.length - 4}
+                      +{team.memberCount - 4}
                     </span>
                   )}
                 </div>

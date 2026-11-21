@@ -205,7 +205,7 @@ export const ProjectDetail: React.FC = () => {
                           style={{ backgroundColor: team.color || '#4F46E5' }}
                         />
                         <span className="font-semibold text-text-primary">{team.name}</span>
-                        <span className="text-text-muted text-[10px]">({team.members.length}명)</span>
+                        <span className="text-text-muted text-[10px]">({team.memberCount}명)</span>
                       </div>
                     ))
                   )}

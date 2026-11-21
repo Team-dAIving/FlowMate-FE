@@ -7,7 +7,7 @@ import { useTeamStore } from '../../store/useTeamStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { Avatar } from '../ui/Avatar';
 import { api } from '../../services/api';
-import { PublicUserProfile, USER_CODE_PATTERN } from '../../types';
+import { PublicUserProfile, TEAM_LIMITS, USER_CODE_PATTERN } from '../../types';
 
 export interface TeamCreateModalProps {
   isOpen: boolean;
@@ -16,12 +16,13 @@ export interface TeamCreateModalProps {
 
 export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClose }) => {
   const { createTeam } = useTeamStore();
-  const { currentWorkspace, currentUser } = useWorkspaceStore();
+  const { currentUser } = useWorkspaceStore();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState('#4F46E5');
   const [isLoading, setIsLoading] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   // Member search by user code
   const [userCodeInput, setUserCodeInput] = useState('');
@@ -37,6 +38,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
     setAddedMembers(currentUser ? [currentUser] : []);
     setUserCodeInput('');
     setSearchError('');
+    setSubmitError('');
   };
 
   // Modal stays mounted and currentUser loads async, so (re)initialize on every open
@@ -68,13 +70,16 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
         setSearchError('본인은 이미 팀에 포함되어 있습니다.');
       } else if (addedMembers.some((m) => m.id === found.id)) {
         setSearchError(`${found.name}은(는) 이미 추가되었습니다.`);
+      } else if (addedMembers.length >= TEAM_LIMITS.MEMBERS_MAX) {
+        setSearchError(`팀원은 최대 ${TEAM_LIMITS.MEMBERS_MAX}명까지 추가할 수 있습니다.`);
       } else {
         setAddedMembers((prev) => (prev.some((m) => m.id === found.id) ? prev : [...prev, found]));
         setUserCodeInput('');
         setSearchError('');
       }
-    } catch {
-      setSearchError('유저 조회 중 오류가 발생했습니다.');
+    } catch (err) {
+      console.error(err);
+      setSearchError('유저 조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
       setIsSearching(false);
     }
@@ -88,24 +93,32 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (isLoading) return;
+    // Mirror backend validation so the user gets immediate feedback
+    if (!name.trim()) return setSubmitError('팀 이름을 입력해주세요.');
+    if (name.trim().length > TEAM_LIMITS.NAME_MAX)
+      return setSubmitError(`팀 이름은 ${TEAM_LIMITS.NAME_MAX}자 이하여야 합니다.`);
+    if (description.trim().length > TEAM_LIMITS.DESCRIPTION_MAX)
+      return setSubmitError(`팀 설명은 ${TEAM_LIMITS.DESCRIPTION_MAX}자 이하여야 합니다.`);
+
+    const memberIds = Array.from(
+      new Set([...(currentUser ? [currentUser.id] : []), ...addedMembers.map((m) => m.id)])
+    );
+    if (memberIds.length === 0) return setSubmitError('팀원을 1명 이상 추가해주세요.');
+    if (memberIds.length > TEAM_LIMITS.MEMBERS_MAX)
+      return setSubmitError(`팀원은 최대 ${TEAM_LIMITS.MEMBERS_MAX}명까지 가능합니다.`);
 
     setIsLoading(true);
+    setSubmitError('');
     try {
-      await createTeam({
-        workspaceId: currentWorkspace?.id || 'ws-flowmate',
-        name: name.trim(),
-        description: description.trim(),
-        // api.createTeam also guarantees the creator is included
-        memberIds: Array.from(new Set([...(currentUser ? [currentUser.id] : []), ...addedMembers.map((m) => m.id)])),
-        projectIds: [], // 프로젝트는 팀 생성 후 연결
-        color,
-      });
+      // 프로젝트는 팀 생성 후 연결
+      await createTeam({ name: name.trim(), description: description.trim(), color, memberIds });
 
       resetForm();
       onClose();
     } catch (err) {
       console.error(err);
+      setSubmitError(err instanceof Error && err.message ? err.message : '팀 생성에 실패했습니다.');
     } finally {
       setIsLoading(false);
     }
@@ -130,6 +143,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
               placeholder="예: Core Frontend Team, AI Research Squad"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              maxLength={TEAM_LIMITS.NAME_MAX}
               required
             />
           </div>
@@ -159,6 +173,7 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
           placeholder="예: React/Electron 기반 클라이언트 런타임 및 개발자 UI/UX 컴포넌트 개발"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          maxLength={TEAM_LIMITS.DESCRIPTION_MAX}
           rows={2}
         />
 
@@ -236,6 +251,10 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
           💡 프로젝트 연결은 팀 생성 후 <strong className="text-text-secondary">팀 상세 화면</strong>에서, 또는{' '}
           <strong className="text-text-secondary">프로젝트 생성 시 소속 팀 선택</strong>으로 연결할 수 있습니다.
         </div>
+
+        {submitError && (
+          <p role="alert" className="text-[11px] text-red-500">{submitError}</p>
+        )}
 
         {/* Buttons */}
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">

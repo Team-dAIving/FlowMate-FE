@@ -134,7 +134,7 @@ export const Sidebar: React.FC = () => {
                     <span className="truncate">{team.name}</span>
                   </div>
                   <span className="text-[10px] font-mono text-text-muted opacity-60 group-hover:opacity-100">
-                    {team.members.length}명
+                    {team.memberCount}명
                   </span>
                 </button>
               );
