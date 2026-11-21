@@ -43,7 +43,8 @@ export interface TeamMember {
 export interface TeamProjectSummary {
   id: string;
   name: string;
-  key: string;
+  // Project goal/summary (backend 'subject'), e.g. '개발팀의 업무 분배, 일정 관리 ...'
+  subject?: string;
 }
 
 export interface Team {
@@ -93,7 +94,6 @@ export interface Project {
   id: string;
   workspaceId: string;
   name: string;
-  key: string; // e.g. FM
   description: string;
   goal: string;
   startDate: string;
@@ -134,7 +134,6 @@ export interface TaskActivity {
 
 export interface Task {
   id: string;
-  issueKey: string; // e.g. FM-101
   projectId: string;
   projectName?: string;
   title: string;

@@ -57,9 +57,6 @@ export const ProjectList: React.FC = () => {
               <div className="space-y-3">
                 {/* Top: Key & Type */}
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-primary-light text-primary">
-                    {proj.key}
-                  </span>
                   <Badge variant="default" className="text-[10px] uppercase font-mono">
                     {proj.projectType}
                   </Badge>

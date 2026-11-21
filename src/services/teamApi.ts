@@ -51,7 +51,7 @@ export function toTeam(dto: TeamDto): Team {
   const projects = (dto.projects || []).map((p) => ({
     id: String(p.id),
     name: p.name || '이름 없는 프로젝트',
-    key: p.subject || '',
+    subject: p.subject || undefined, // project goal/summary, not an identifier
   }));
   return {
     id: String(dto.id),

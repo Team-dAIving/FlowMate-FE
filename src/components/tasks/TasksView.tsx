@@ -49,9 +49,8 @@ export const TasksView: React.FC = () => {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       const matchTitle = t.title.toLowerCase().includes(q);
-      const matchKey = t.issueKey.toLowerCase().includes(q);
       const matchDesc = t.description.toLowerCase().includes(q);
-      return matchTitle || matchKey || matchDesc;
+      return matchTitle || matchDesc;
     }
     return true;
   });
@@ -62,7 +61,7 @@ export const TasksView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>
           <div className="text-xs font-mono text-text-muted">
-            {currentProject ? `~/projects/${currentProject.key}/issues` : '~/workspace/all-issues'}
+            {currentProject ? `~/projects/${currentProject.name}/issues` : '~/workspace/all-issues'}
           </div>
           <h1 className="text-xl font-bold text-text-primary tracking-tight mt-1">
             {currentProject ? `${currentProject.name} 업무 목록` : '전체 업무 관리 (All Issues)'}
@@ -131,7 +130,7 @@ export const TasksView: React.FC = () => {
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-text-muted" />
             <input
               type="text"
-              placeholder="업무 검색 (제목, 이슈ID, 내용)..."
+              placeholder="업무 검색 (제목, 내용)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="h-8 pl-8 pr-3 text-xs w-full rounded-md border border-border bg-surface-hover/30 text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"

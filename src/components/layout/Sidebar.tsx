@@ -175,9 +175,6 @@ export const Sidebar: React.FC = () => {
                   )}
                 >
                   <div className="flex items-center gap-2 truncate">
-                    <span className="font-mono text-[10px] px-1 py-0.2 rounded bg-surface border border-border text-text-muted font-bold">
-                      {proj.key}
-                    </span>
                     <span className="truncate">{proj.name}</span>
                   </div>
                   {proj.githubRepo && (

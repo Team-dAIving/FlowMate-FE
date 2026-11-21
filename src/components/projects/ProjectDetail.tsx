@@ -125,9 +125,6 @@ export const ProjectDetail: React.FC = () => {
           </button>
 
           <div className="flex items-center gap-2.5">
-            <span className="font-mono text-sm font-bold px-2 py-0.5 rounded bg-primary-light text-primary">
-              {project.key}
-            </span>
             <h1 className="text-xl font-bold text-text-primary tracking-tight">
               {project.name}
             </h1>

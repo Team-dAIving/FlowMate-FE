@@ -215,9 +215,6 @@ export const PersonalDashboard: React.FC = () => {
                   className="p-3 flex items-center justify-between gap-3 hover:bg-surface-hover cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="font-mono text-xs font-bold text-text-muted shrink-0 w-16">
-                      {task.issueKey}
-                    </span>
                     <span className="text-xs font-medium text-text-primary truncate">
                       {task.title}
                     </span>
@@ -256,9 +253,6 @@ export const PersonalDashboard: React.FC = () => {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 font-medium text-xs text-text-primary">
-                      <span className="font-mono text-[10px] font-bold text-primary px-1 py-0.2 rounded bg-primary-light">
-                        {p.key}
-                      </span>
                       <span>{p.name}</span>
                     </div>
                     <span className="font-mono text-xs font-bold text-text-secondary">

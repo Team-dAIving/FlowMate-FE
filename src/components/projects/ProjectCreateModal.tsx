@@ -18,7 +18,6 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   const { teams, fetchTeams } = useTeamStore();
 
   const [name, setName] = useState('');
-  const [key, setKey] = useState('');
   const [description, setDescription] = useState('');
   const [goal, setGoal] = useState('');
   const [startDate, setStartDate] = useState('2026-11-18');
@@ -45,12 +44,9 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
         .map((t) => t.trim())
         .filter(Boolean);
 
-      const generatedKey = key.trim().toUpperCase() || name.slice(0, 3).toUpperCase();
-
       const newProject = await createProject({
         workspaceId: currentWorkspace?.id || 'ws-flowmate',
         name: name.trim(),
-        key: generatedKey,
         description: description.trim(),
         goal: goal.trim(),
         startDate,
@@ -108,31 +104,13 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
       description="개발팀의 프로젝트 주제, 목표, 기술 스택 및 저장소를 구성합니다."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
-          <div className="col-span-2">
-            <Input
-              label="프로젝트명"
-              placeholder="예: FlowMate Platform"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (!key) {
-                  setKey(e.target.value.replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase());
-                }
-              }}
-              required
-            />
-          </div>
-          <div>
-            <Input
-              label="식별 키 (Key)"
-              placeholder="예: FM"
-              value={key}
-              onChange={(e) => setKey(e.target.value.toUpperCase())}
-              required
-            />
-          </div>
-        </div>
+        <Input
+          label="프로젝트명"
+          placeholder="예: FlowMate Platform"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
 
         <Textarea
           label="프로젝트 설명 (Description)"

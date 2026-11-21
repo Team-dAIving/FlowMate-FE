@@ -24,7 +24,6 @@ export const TaskListView: React.FC<TaskListViewProps> = ({ tasks, onSelectTask 
       {/* Table Header */}
       <div className="px-3.5 py-2 bg-surface-hover/50 text-[11px] font-mono font-semibold text-text-muted flex items-center justify-between">
         <div className="flex items-center gap-4 flex-1">
-          <span className="w-20 shrink-0">ISSUE ID</span>
           <span className="w-20 shrink-0">PRIORITY</span>
           <span className="flex-1">TITLE</span>
         </div>
@@ -47,9 +46,6 @@ export const TaskListView: React.FC<TaskListViewProps> = ({ tasks, onSelectTask 
             className="px-3.5 py-2.5 flex items-center justify-between gap-4 hover:bg-surface-hover cursor-pointer transition-colors group"
           >
             <div className="flex items-center gap-4 flex-1 min-w-0">
-              <span className="font-mono text-xs font-bold text-text-muted group-hover:text-primary transition-colors w-20 shrink-0">
-                {task.issueKey}
-              </span>
 
               <div className="w-20 shrink-0">
                 <Badge priority={task.priority} />

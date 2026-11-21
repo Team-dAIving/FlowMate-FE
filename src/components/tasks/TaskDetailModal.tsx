@@ -95,9 +95,6 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
       maxWidth="2xl"
       title={
         <div className="flex items-center gap-2.5">
-          <span className="font-mono text-sm font-bold text-primary px-1.5 py-0.5 rounded bg-primary-light">
-            {task.issueKey}
-          </span>
           <span className="text-sm font-semibold truncate text-text-primary">{task.title}</span>
         </div>
       }

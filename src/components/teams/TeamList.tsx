@@ -115,7 +115,7 @@ export const TeamList: React.FC = () => {
                           className="font-mono text-[10px] px-2 py-0.5 rounded bg-surface-hover border border-border text-text-primary font-medium flex items-center gap-1"
                         >
                           <FolderKanban className="h-3 w-3 text-primary" />
-                          <span>[{proj.key}] {proj.name}</span>
+                          <span>{proj.name}</span>
                         </span>
                       ))
                     )}

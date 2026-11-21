@@ -83,7 +83,7 @@ function mockRecordToTeam(t: MockTeamRecord, projects: Project[], tasks: Task[])
   const teamProjects = (t.projectIds || [])
     .map((pid) => projects.find((p) => p.id === pid))
     .filter((p): p is Project => Boolean(p))
-    .map((p) => ({ id: p.id, name: p.name, key: p.key }));
+    .map((p) => ({ id: p.id, name: p.name, subject: p.goal || undefined }));
   const memberIdSet = new Set(members.map((m) => m.id));
   return {
     id: t.id,
@@ -260,10 +260,8 @@ export const api = {
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
     const project = projects.find((p) => p.id === taskData.projectId) || projects[0];
 
-    const count = tasks.length + 101;
     const newTask: Task = {
       id: `task-${Date.now()}`,
-      issueKey: `${project.key || 'FM'}-${count}`,
       projectId: project.id,
       projectName: project.name,
       title: taskData.title || '새로운 업무',
@@ -295,7 +293,7 @@ export const api = {
     api.addNotification({
       type: 'TASK_ASSIGNED',
       title: '새로운 업무 등록',
-      message: `${newTask.issueKey}: "${newTask.title}" 업무가 등록되었습니다.`,
+      message: `"${newTask.title}" 업무가 등록되었습니다.`,
       linkUrl: `/tasks/${newTask.id}`,
     });
 
@@ -349,7 +347,7 @@ export const api = {
     const githubIssue = {
       id: Date.now(),
       number: issueNumber,
-      title: `${task.issueKey}: ${task.title}`,
+      title: task.title,
       htmlUrl: `https://github.com/dAIving/FlowMate-Core/issues/${issueNumber}`,
       state: 'open' as const,
       createdAt: new Date().toISOString(),
@@ -367,7 +365,7 @@ export const api = {
     api.addNotification({
       type: 'GITHUB_SYNCED',
       title: 'GitHub Issue 생성 완료',
-      message: `${task.issueKey} 업무가 GitHub Issue #${issueNumber}로 등록되었습니다.`,
+      message: `"${task.title}" 업무가 GitHub Issue #${issueNumber}로 등록되었습니다.`,
       linkUrl: githubIssue.htmlUrl,
     });
 

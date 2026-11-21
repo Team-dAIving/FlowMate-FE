@@ -149,7 +149,7 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  [{p.key}] {p.name}
+                  {p.name}
                 </option>
               ))}
             </select>

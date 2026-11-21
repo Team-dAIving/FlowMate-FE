@@ -176,7 +176,7 @@ export const CommandPalette: React.FC = () => {
   // Dynamic project open commands
   const projectCommands = projects.map((p) => ({
     id: `project-${p.id}`,
-    label: `Open Project: [${p.key}] ${p.name}`,
+    label: `Open Project: ${p.name}`,
     category: 'Projects',
     icon: <GitBranch className="h-4 w-4 text-primary" />,
     action: () => {

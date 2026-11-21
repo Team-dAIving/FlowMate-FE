@@ -94,7 +94,7 @@ export const TaskCreateModal: React.FC<TaskCreateModalProps> = ({ isOpen, onClos
           >
             {myProjects.map((p) => (
               <option key={p.id} value={p.id}>
-                [{p.key}] {p.name}
+                {p.name}
               </option>
             ))}
           </select>

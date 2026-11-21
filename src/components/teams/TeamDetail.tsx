@@ -144,9 +144,6 @@ export const TeamDetail: React.FC = () => {
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-primary-light text-primary">
-                          {project.key}
-                        </span>
                         <h4 className="text-sm font-bold text-text-primary group-hover:text-primary transition-colors">
                           {project.name}
                         </h4>

@@ -64,7 +64,6 @@ export const initialProjects: Project[] = [
     id: 'proj-1',
     workspaceId: 'ws-flowmate',
     name: 'FlowMate Platform',
-    key: 'FM',
     description: '개발팀의 업무 분배, 일정 관리 및 AI 회의록을 결합한 통합 데스크톱 플랫폼',
     goal: 'MVP 릴리즈 및 GitHub Issue 양방향 연동 기반 데스크톱 클라이언트 완성',
     startDate: '2026-11-01',
@@ -88,7 +87,6 @@ export const initialProjects: Project[] = [
     id: 'proj-2',
     workspaceId: 'ws-flowmate',
     name: 'AI Meeting & STT Engine',
-    key: 'AME',
     description: 'Amazon Transcribe 및 Bedrock을 활용한 회의록 자동 요약 및 Action Items 추출 엔진',
     goal: '한국어 개발 전문 용어 인식률 95% 달성 및 액션 아이템 승인 파이프라인 검증',
     startDate: '2026-11-05',
@@ -116,7 +114,6 @@ export const initialProjects: Project[] = [
     id: 'proj-3',
     workspaceId: 'ws-flowmate',
     name: 'DevOps & AWS Cloud Infra',
-    key: 'OPS',
     description: 'PostgreSQL 클러스터, S3 버킷 권한 및 ECS 무중단 배포 파이프라인 구성',
     goal: '스테이징/프로덕션 멀티 리전 인프라 IaC 구성 완료',
     startDate: '2026-11-10',
@@ -176,7 +173,6 @@ export const initialTeams: MockTeamRecord[] = [
 export const initialTasks: Task[] = [
   {
     id: 'task-1',
-    issueKey: 'FM-101',
     projectId: 'proj-1',
     projectName: 'FlowMate Platform',
     title: '사용자 인증 및 JWT 세션 관리 API 연동',
@@ -211,7 +207,6 @@ export const initialTasks: Task[] = [
   },
   {
     id: 'task-2',
-    issueKey: 'FM-102',
     projectId: 'proj-1',
     projectName: 'FlowMate Platform',
     title: 'Electron Preload 레이어 및 보안 IPC 인터페이스 구축',
@@ -232,7 +227,6 @@ export const initialTasks: Task[] = [
   },
   {
     id: 'task-3',
-    issueKey: 'FM-103',
     projectId: 'proj-1',
     projectName: 'FlowMate Platform',
     title: 'GitHub App 연동 및 FlowMate 업무 단방향 Issue 생성',
@@ -258,7 +252,6 @@ export const initialTasks: Task[] = [
   },
   {
     id: 'task-4',
-    issueKey: 'FM-104',
     projectId: 'proj-1',
     projectName: 'FlowMate Platform',
     title: '회의 음성 녹음(MediaRecorder) 및 Presigned S3 업로드',
@@ -276,7 +269,6 @@ export const initialTasks: Task[] = [
   },
   {
     id: 'task-5',
-    issueKey: 'FM-105',
     projectId: 'proj-1',
     projectName: 'FlowMate Platform',
     title: '팀 대시보드 리차트 시각화 및 개발자 업무량 분포도',
@@ -295,7 +287,6 @@ export const initialTasks: Task[] = [
   },
   {
     id: 'task-6',
-    issueKey: 'FM-106',
     projectId: 'proj-1',
     projectName: 'FlowMate Platform',
     title: 'AI Action Items 검토 & 수동 승인 모달 UI',
@@ -321,7 +312,6 @@ export const initialTasks: Task[] = [
   },
   {
     id: 'task-7',
-    issueKey: 'FM-107',
     projectId: 'proj-1',
     projectName: 'FlowMate Platform',
     title: 'Electron 시스템 트레이 아이콘 및 백그라운드 녹음 유지',
@@ -339,7 +329,6 @@ export const initialTasks: Task[] = [
   },
   {
     id: 'task-8',
-    issueKey: 'FM-108',
     projectId: 'proj-1',
     projectName: 'FlowMate Platform',
     title: 'Linear & Raycast 스타일 Command Palette (Ctrl+K) 구현',

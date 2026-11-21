@@ -91,9 +91,6 @@ export const TaskKanbanView: React.FC<TaskKanbanViewProps> = ({ tasks, onSelectT
                     >
                       {/* Top Issue Key & Priority */}
                       <div className="flex items-center justify-between">
-                        <span className="font-mono text-[11px] font-bold text-text-muted group-hover:text-primary transition-colors">
-                          {task.issueKey}
-                        </span>
                         <Badge priority={task.priority} />
                       </div>
 

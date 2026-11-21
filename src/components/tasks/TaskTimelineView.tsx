@@ -59,9 +59,6 @@ export const TaskTimelineView: React.FC<TaskTimelineViewProps> = ({ tasks, onSel
               {/* Task name col */}
               <div className="w-64 px-3 flex items-center justify-between gap-2 shrink-0 border-r border-border/60 truncate">
                 <div className="flex items-center gap-2 truncate">
-                  <span className="font-mono text-[10px] font-bold text-text-muted">
-                    {task.issueKey}
-                  </span>
                   <span className="text-xs font-medium text-text-primary truncate">
                     {task.title}
                   </span>
