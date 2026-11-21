@@ -16,7 +16,9 @@ import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTaskStore } from '../../store/useTaskStore';
 import { useMeetingStore } from '../../store/useMeetingStore';
 import { useUIStore } from '../../store/useUIStore';
-import { groupTasksByProject } from '../../utils/projectTeams';
+import { useTeamStore } from '../../store/useTeamStore';
+import { groupTasksByProject, getProjectTeams } from '../../utils/projectTeams';
+import { getProjectLeader } from '../../utils/projectLeader';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -26,6 +28,7 @@ import { formatDate } from '../../utils/formatters';
 export const PersonalDashboard: React.FC = () => {
   const { currentUser, projects, setCurrentView } = useWorkspaceStore();
   const { tasks } = useTaskStore();
+  const { teams } = useTeamStore();
   const { meetings } = useMeetingStore();
   const { setCreateTaskModalOpen, setRecordMeetingModalOpen, setSelectedTaskIdForDetail } = useUIStore();
 
@@ -265,29 +268,56 @@ export const PersonalDashboard: React.FC = () => {
               PROJECTS OVERVIEW
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {projects.slice(0, 2).map((p) => (
-                <Card
-                  key={p.id}
-                  hoverEffect
-                  onClick={() => setCurrentView('project-detail', p.id)}
-                  className="p-3 space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 font-medium text-xs text-text-primary">
-                      <span>{p.name}</span>
+              {projects.map((p) => {
+                const projectTeams = getProjectTeams(p.id, teams);
+                const leader = getProjectLeader(p);
+                return (
+                  <Card
+                    key={p.id}
+                    hoverEffect
+                    onClick={() => setCurrentView('project-detail', p.id)}
+                    className="p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-medium text-xs text-text-primary min-w-0">
+                        <span className="truncate">{p.name}</span>
+                      </div>
+                      <span className="font-mono text-xs font-bold text-text-secondary">
+                        {p.progress}%
+                      </span>
                     </div>
-                    <span className="font-mono text-xs font-bold text-text-secondary">
-                      {p.progress}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-border/60 h-1.5 rounded-full overflow-hidden">
-                    <div
-                      className="bg-primary h-full rounded-full transition-all duration-300"
-                      style={{ width: `${p.progress}%` }}
-                    />
-                  </div>
-                </Card>
-              ))}
+                    <div className="w-full bg-border/60 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="bg-primary h-full rounded-full transition-all duration-300"
+                        style={{ width: `${p.progress}%` }}
+                      />
+                    </div>
+
+                    {/* Team(s) & leader */}
+                    <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                      {projectTeams.length === 0 ? (
+                        <span className="text-text-muted italic">소속 팀 없음</span>
+                      ) : (
+                        projectTeams.map((team) => (
+                          <span
+                            key={team.id}
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-surface-hover text-text-primary font-medium"
+                          >
+                            <span
+                              className="w-1.5 h-1.5 rounded-full"
+                              style={{ backgroundColor: team.color || '#4F46E5' }}
+                            />
+                            {team.name}
+                          </span>
+                        ))
+                      )}
+                      <span className="text-text-muted ml-auto">
+                        리더: {leader ? leader.name : '미지정'}
+                      </span>
+                    </div>
+                  </Card>
+                );
+              })}
             </div>
           </div>
         </div>

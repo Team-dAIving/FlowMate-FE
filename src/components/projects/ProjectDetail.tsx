@@ -29,6 +29,7 @@ import {
   Target,
   BarChart3,
   Layers,
+  Crown,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTaskStore } from '../../store/useTaskStore';
@@ -44,9 +45,11 @@ import { TaskListView } from '../tasks/TaskListView';
 import { TaskKanbanView } from '../tasks/TaskKanbanView';
 import { TaskTimelineView } from '../tasks/TaskTimelineView';
 import { formatDate } from '../../utils/formatters';
+import { getProjectLeader } from '../../utils/projectLeader';
+import { api } from '../../services/api';
 
 export const ProjectDetail: React.FC = () => {
-  const { currentProjectId, projects, setCurrentView } = useWorkspaceStore();
+  const { currentProjectId, projects, setCurrentView, fetchProjects } = useWorkspaceStore();
   const { tasks } = useTaskStore();
   const { meetings } = useMeetingStore();
   const { teams } = useTeamStore();
@@ -60,6 +63,23 @@ export const ProjectDetail: React.FC = () => {
   const projectTasks = tasks.filter((t) => t.projectId === project.id);
   const projectMeetings = meetings.filter((m) => m.projectId === project.id);
   const connectedTeams = teams.filter((t) => (t.projectIds || []).includes(project.id));
+  const leader = getProjectLeader(project);
+
+  // Leader is a project-level setting: update leaderId and keep OWNER role in sync
+  const handleChangeLeader = async (userId: string) => {
+    try {
+      await api.updateProject(project.id, {
+        leaderId: userId,
+        members: project.members.map((m) => ({
+          ...m,
+          role: m.user.id === userId ? 'OWNER' : m.role === 'OWNER' ? 'MEMBER' : m.role,
+        })),
+      });
+      await fetchProjects();
+    } catch (err) {
+      console.error('Failed to change project leader:', err);
+    }
+  };
 
   // Task Status Distribution for this specific project
   const statusCounts = {
@@ -131,6 +151,10 @@ export const ProjectDetail: React.FC = () => {
             <Badge variant="default" className="text-[10px] uppercase font-mono">
               {project.projectType}
             </Badge>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-text-secondary">
+            <Crown className="h-3.5 w-3.5 text-amber-500" />
+            <span>리더: {leader ? leader.name : '미지정'}</span>
           </div>
         </div>
 
@@ -463,9 +487,25 @@ export const ProjectDetail: React.FC = () => {
                   <div className="text-[11px] text-text-muted">{m.user.email}</div>
                 </div>
               </div>
-              <Badge variant="default" className="text-[10px] font-mono uppercase">
-                {m.role}
-              </Badge>
+              <div className="flex items-center gap-2">
+                {m.user.id === leader?.id ? (
+                  <span className="text-[10px] font-semibold text-amber-600 flex items-center gap-1">
+                    <Crown className="h-3 w-3" />
+                    리더
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleChangeLeader(m.user.id)}
+                    className="text-[10px] text-text-muted hover:text-primary hover:underline"
+                  >
+                    리더로 지정
+                  </button>
+                )}
+                <Badge variant="default" className="text-[10px] font-mono uppercase">
+                  {m.role}
+                </Badge>
+              </div>
             </div>
           ))}
         </div>

@@ -1,4 +1,9 @@
-import { Project, Task } from '../types';
+import { Project, Task, Team } from '../types';
+
+/** Teams that a project is connected to. */
+export function getProjectTeams(projectId: string, teams: Team[]): Team[] {
+  return teams.filter((t) => (t.projectIds || []).includes(projectId));
+}
 
 export interface ProjectTaskGroup {
   projectId: string;

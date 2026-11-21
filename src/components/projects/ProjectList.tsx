@@ -1,6 +1,9 @@
 import React from 'react';
-import { Plus, FolderKanban, GitBranch, Calendar, Users, ArrowUpRight } from 'lucide-react';
+import { Plus, FolderKanban, GitBranch, Calendar, Users, ArrowUpRight, Crown } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
+import { useTeamStore } from '../../store/useTeamStore';
+import { getProjectTeams } from '../../utils/projectTeams';
+import { getProjectLeader } from '../../utils/projectLeader';
 import { useTaskStore } from '../../store/useTaskStore';
 import { useUIStore } from '../../store/useUIStore';
 import { Card } from '../ui/Card';
@@ -12,6 +15,7 @@ import { formatDate } from '../../utils/formatters';
 export const ProjectList: React.FC = () => {
   const { projects, setCurrentView } = useWorkspaceStore();
   const { tasks } = useTaskStore();
+  const { teams } = useTeamStore();
   const { setCreateProjectModalOpen } = useUIStore();
 
   return (
@@ -42,6 +46,8 @@ export const ProjectList: React.FC = () => {
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {projects.map((proj) => {
+          const projectTeams = getProjectTeams(proj.id, teams);
+          const leader = getProjectLeader(proj);
           const projTasks = tasks.filter((t) => t.projectId === proj.id);
           const doneTasks = projTasks.filter((t) => t.status === 'DONE').length;
           const calculatedProgress =
@@ -71,6 +77,30 @@ export const ProjectList: React.FC = () => {
                   <p className="text-xs text-text-secondary line-clamp-2 mt-1 leading-relaxed">
                     {proj.description}
                   </p>
+                </div>
+
+                {/* Team & leader */}
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                  {projectTeams.length === 0 ? (
+                    <span className="text-text-muted italic">소속 팀 없음</span>
+                  ) : (
+                    projectTeams.map((team) => (
+                      <span
+                        key={team.id}
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-surface-hover text-text-primary font-medium"
+                      >
+                        <span
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: team.color || '#4F46E5' }}
+                        />
+                        {team.name}
+                      </span>
+                    ))
+                  )}
+                  <span className="text-text-muted ml-auto flex items-center gap-1">
+                    <Crown className="h-3 w-3 text-amber-500" />
+                    {leader ? leader.name : '리더 미지정'}
+                  </span>
                 </div>
 
                 {/* Tech stack tags */}

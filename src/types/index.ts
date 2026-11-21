@@ -101,6 +101,9 @@ export interface Project {
   projectType: ProjectType;
   techStack: string[];
   members: ProjectMember[];
+  // Project leader (user id). Leader is a per-project concept, not a team one.
+  // Older records without it fall back to the member with role OWNER (see utils/projectLeader).
+  leaderId?: string;
   githubRepo?: GitHubRepository;
   progress: number; // 0 to 100
   createdAt: string;

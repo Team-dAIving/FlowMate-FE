@@ -26,12 +26,35 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   const [techStackInput, setTechStackInput] = useState('React, TypeScript, Spring Boot');
   const [repoName, setRepoName] = useState('');
   const [selectedTeamId, setSelectedTeamId] = useState(defaultTeamId || '');
+  const [leaderId, setLeaderId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   // The modal stays mounted, so useState(defaultTeamId) only runs once — re-sync on every open
   useEffect(() => {
-    if (isOpen) setSelectedTeamId(defaultTeamId || '');
+    if (isOpen) {
+      setSelectedTeamId(defaultTeamId || '');
+      setLeaderId('');
+    }
   }, [isOpen, defaultTeamId]);
+
+  // Everyone who will be a project member, and therefore a leader candidate
+  const selectedTeam = teams.find((t) => t.id === selectedTeamId);
+  // Team responses only carry { id, name, avatarUrl } — prefer the full currentUser object for self
+  const candidateUsers: User[] = selectedTeam
+    ? selectedTeam.members.map((m) =>
+        m.id === currentUser?.id
+          ? currentUser
+          : { id: m.id, name: m.name, avatarUrl: m.avatarUrl, email: '', role: 'MEMBER' as const }
+      )
+    : currentUser
+    ? [currentUser]
+    : [];
+  // Default to the creator; fall back to the first member if the chosen leader is no longer a candidate
+  const effectiveLeaderId = candidateUsers.some((u) => u.id === leaderId)
+    ? leaderId
+    : candidateUsers.some((u) => u.id === currentUser?.id)
+    ? currentUser!.id
+    : candidateUsers[0]?.id || '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,21 +77,12 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
         projectType,
         techStack,
         // 팀 선택 시 해당 팀원만, 아니면 본인만 — 전체 유저를 프로젝트에 넣지 않음.
-        // 생성자는 프로젝트 리더(OWNER)로 지정 (리더는 팀이 아니라 프로젝트 단위)
-        members: (() => {
-          const team = teams.find((t) => t.id === selectedTeamId);
-          // Team responses only carry { id, name, avatarUrl } — prefer the full currentUser object for self
-          const users: User[] = team
-            ? team.members.map((m) =>
-                m.id === currentUser?.id
-                  ? currentUser
-                  : { id: m.id, name: m.name, avatarUrl: m.avatarUrl, email: '', role: 'MEMBER' as const }
-              )
-            : currentUser
-            ? [currentUser]
-            : [];
-          return users.map((u) => ({ user: u, role: u.id === currentUser?.id ? 'OWNER' as const : 'MEMBER' as const }));
-        })(),
+        // 리더는 팀이 아니라 프로젝트 단위로 지정 (leaderId + OWNER 역할)
+        leaderId: effectiveLeaderId || undefined,
+        members: candidateUsers.map((u) => ({
+          user: u,
+          role: u.id === effectiveLeaderId ? ('OWNER' as const) : ('MEMBER' as const),
+        })),
         githubRepo: repoName.trim()
           ? {
               id: Date.now(),
@@ -186,6 +200,28 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
           </select>
           <p className="mt-1 text-[11px] text-text-muted">
             선택 시 해당 팀의 프로젝트로 자동 연결됩니다.
+          </p>
+        </div>
+
+        {/* Project leader */}
+        <div>
+          <label className="block text-xs font-medium text-text-secondary mb-1">
+            프로젝트 리더 (Leader)
+          </label>
+          <select
+            value={effectiveLeaderId}
+            onChange={(e) => setLeaderId(e.target.value)}
+            className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            {candidateUsers.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+                {u.id === currentUser?.id ? ' (나)' : ''}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-text-muted">
+            리더는 프로젝트마다 지정합니다. 소속 팀을 고르면 그 팀원 중에서 선택할 수 있습니다.
           </p>
         </div>
 
