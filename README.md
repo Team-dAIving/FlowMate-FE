@@ -29,9 +29,19 @@ npm run build
 
 ---
 
+### 5. 웹 배포 (Vercel)
+- Vercel에서 이 저장소를 import하면 `vercel.json`대로 빌드됩니다 (`npm run build` → `dist`, SPA 라우팅, 보안 헤더).
+- **Environment Variables**에 `VITE_API_BASE_URL=https://<백엔드 주소>`를 넣어야 실제 서비스로 동작합니다. 비워 두면 목업 데이터 모드입니다.
+- 백엔드에 필요한 설정: 웹 로그인 콜백 `https://<배포 주소>/oauth/callback` (client=web), CORS 허용 origin에 배포 주소.
+- 연결된 백엔드 API (FlowMate-BE `dev`): 로그인·내 정보·닉네임, 팀 목록/생성/상세, 유저 코드 조회, 내 프로젝트 목록, 업무 목록(팀 상세 경유)·상세·댓글·삭제.
+- 아직 백엔드 API가 없는 기능(프로젝트 생성·수정, 업무 등록·상태 변경, 회의·AI 분석, 알림, GitHub Issue 생성)은 실서버 모드에서 "준비 중"으로 표시됩니다. API가 생기면 `src/services/features.ts`의 플래그를 켜고 `src/services/api.ts`에 연결합니다.
+- 목업 데이터가 들어 있는 시점의 코드는 `backup/mock-data` 브랜치에 있습니다.
+
+---
+
 ## 🛠 기술 스택 (Tech Stack)
 
-- **Desktop Runtime**: Electron 34
+- **Desktop Runtime**: Electron 45
 - **Frontend Framework**: React 18 + TypeScript
 - **Build Tool**: Vite 6
 - **UI Framework & Styling**: Tailwind CSS + shadcn/ui Design Tokens
