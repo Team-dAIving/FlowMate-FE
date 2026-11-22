@@ -1,97 +1,121 @@
 import { create } from 'zustand';
-import { authApi, parseOAuthCallback } from '../services/authApi';
-import { setAuthTokenProvider, setUnauthorizedHandler } from '../services/http';
+import { authApi } from '../services/authApi';
+import { ApiError, setUnauthorizedHandler } from '../services/http';
+import type { AuthResult } from '../types/electron';
 
-const TOKEN_KEY = 'flowmate_access_token';
-const NEEDS_NICKNAME_KEY = 'flowmate_needs_nickname';
-const LOGIN_STARTED_AT_KEY = 'flowmate_login_started_at';
-// The GitHub login has to finish within this window after clicking "GitHub로 로그인"
-const LOGIN_WINDOW_MS = 10 * 60 * 1000;
-// header.payload.signature, base64url
-const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+// The JWT lives only in the Electron main process (encrypted with safeStorage, attached to API requests
+// there). This store only knows whether a session exists and whether onboarding is pending.
+
+export type AuthStatus = 'checking' | 'loggedOut' | 'onboarding' | 'ready';
 
 interface AuthState {
-  token: string | null;
-  /** First GitHub login: the user must pick a nickname before using the app. */
-  needsNickname: boolean;
+  status: AuthStatus;
   loginError: string | null;
-  /** Marks that the user started a GitHub login from this app (required to accept the callback). */
-  beginLogin: () => void;
-  handleOAuthCallback: (url: string) => void;
+  isLoggingIn: boolean;
+  /** Restores the session on startup. Call once. */
+  init: () => Promise<void>;
+  startLogin: () => Promise<void>;
   submitNickname: (nickname: string) => Promise<void>;
-  /** Tells the server, then drops the local session (the local session is dropped even if the call fails). */
+  /** Tells the server, then drops the local session (dropped even if the call fails). */
   logout: () => Promise<void>;
 }
 
-const readStorage = (key: string): string | null => {
+// Older versions kept the token in localStorage; remove anything left behind.
+for (const key of ['flowmate_access_token', 'flowmate_needs_nickname', 'flowmate_login_started_at']) {
   try {
-    return localStorage.getItem(key);
+    localStorage.removeItem(key);
   } catch {
-    return null;
+    // ignore
   }
-};
+}
 
-const writeStorage = (key: string, value: string | null) => {
-  try {
-    if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
-  } catch (err) {
-    console.error('Failed to persist auth state:', err);
-  }
-};
+const LOGIN_ERROR = 'GitHub 로그인에 실패했습니다. 다시 시도해주세요.';
+const DESKTOP_ONLY = '로그인은 FlowMate 데스크톱 앱에서만 가능합니다.';
 
 export const useAuthStore = create<AuthState>((set, get) => {
-  const clearSession = () => {
-    writeStorage(TOKEN_KEY, null);
-    writeStorage(NEEDS_NICKNAME_KEY, null);
-    writeStorage(LOGIN_STARTED_AT_KEY, null);
-    set({ token: null, needsNickname: false });
+  const electronAuth = () => window.electronAPI?.auth;
+
+  const clearLocal = async () => {
+    try {
+      await electronAuth()?.clear();
+    } catch (err) {
+      console.error('Failed to clear the session:', err);
+    }
+    set({ status: 'loggedOut', isLoggingIn: false });
   };
 
-  // Register with the http client; the JWT goes out as a Bearer header.
-  setAuthTokenProvider(() => get().token);
-  // Token rejected by the server: no point calling /logout, just drop it.
-  setUnauthorizedHandler(clearSession);
+  /** Asks the server who we are; decides between onboarding and the app. */
+  const loadMe = async () => {
+    try {
+      const me = await authApi.getMe();
+      set({ status: me.onboardingRequired ? 'onboarding' : 'ready', loginError: null, isLoggingIn: false });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        // Handle it here too: right after a login the status is still 'loggedOut', so the global
+        // 401 handler skips it, and the rejected token would otherwise stay stored.
+        await clearLocal();
+        set({ loginError: '로그인 정보가 유효하지 않습니다. 다시 로그인해주세요.' });
+      } else {
+        console.error('Failed to load the current user:', err);
+        set({ status: 'loggedOut', isLoggingIn: false, loginError: '서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.' });
+      }
+    }
+  };
 
-  // The Electron main process forwards flowmate://oauth/callback?... here after the browser login.
-  window.electronAPI?.onOAuthCallback?.((url) => get().handleOAuthCallback(url));
+  // The server rejected the session: forget it and show the login screen
+  setUnauthorizedHandler(() => {
+    if (get().status !== 'loggedOut') void clearLocal();
+  });
+
+  // Login results come from the main process after the browser round trip (ok/error only, no token)
+  electronAuth()?.onResult((result: AuthResult) => {
+    if (result.ok) {
+      void loadMe();
+    } else {
+      set({ isLoggingIn: false, loginError: LOGIN_ERROR });
+    }
+  });
 
   return {
-    token: readStorage(TOKEN_KEY),
-    needsNickname: readStorage(NEEDS_NICKNAME_KEY) === 'true',
+    status: 'checking',
     loginError: null,
+    isLoggingIn: false,
 
-    beginLogin: () => {
-      writeStorage(LOGIN_STARTED_AT_KEY, String(Date.now()));
-      set({ loginError: null });
+    init: async () => {
+      const ea = electronAuth();
+      if (!ea) {
+        set({ status: 'loggedOut', loginError: DESKTOP_ONLY });
+        return;
+      }
+      try {
+        const { loggedIn } = await ea.getState();
+        if (loggedIn) await loadMe();
+        else set({ status: 'loggedOut' });
+      } catch (err) {
+        console.error('Failed to restore the session:', err);
+        set({ status: 'loggedOut' });
+      }
     },
 
-    handleOAuthCallback: (url) => {
-      const result = parseOAuthCallback(url);
-      if (!result) return;
-
-      // Login CSRF guard: any app or web page can open flowmate://oauth/callback?accessToken=<attacker token>.
-      // Only accept a callback for a login the user started here recently. Consume the marker either way.
-      const startedAt = Number(readStorage(LOGIN_STARTED_AT_KEY));
-      writeStorage(LOGIN_STARTED_AT_KEY, null);
-      if (!startedAt || Date.now() - startedAt > LOGIN_WINDOW_MS) {
-        console.warn('Ignored an OAuth callback that this app did not start.');
+    startLogin: async () => {
+      const ea = electronAuth();
+      if (!ea) {
+        set({ loginError: DESKTOP_ONLY });
         return;
       }
-
-      if (result.error || !result.accessToken || !JWT_SHAPE.test(result.accessToken)) {
-        set({ loginError: 'GitHub 로그인에 실패했습니다. 다시 시도해주세요.' });
-        return;
+      set({ isLoggingIn: true, loginError: null });
+      try {
+        const res = await ea.startLogin();
+        if (!res.ok) set({ isLoggingIn: false, loginError: res.message || LOGIN_ERROR });
+      } catch (err) {
+        console.error('Failed to start login:', err);
+        set({ isLoggingIn: false, loginError: LOGIN_ERROR });
       }
-      writeStorage(TOKEN_KEY, result.accessToken);
-      writeStorage(NEEDS_NICKNAME_KEY, String(result.onboardingRequired));
-      set({ token: result.accessToken, needsNickname: result.onboardingRequired, loginError: null });
     },
 
     submitNickname: async (nickname) => {
-      await authApi.setNickname(nickname);
-      writeStorage(NEEDS_NICKNAME_KEY, null);
-      set({ needsNickname: false });
+      const me = await authApi.setNickname(nickname);
+      set({ status: me.onboardingRequired ? 'onboarding' : 'ready' });
     },
 
     logout: async () => {
@@ -100,7 +124,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       } catch (err) {
         console.error('Logout request failed:', err);
       }
-      clearSession();
+      await clearLocal();
     },
   };
 });

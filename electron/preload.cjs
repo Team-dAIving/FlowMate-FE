@@ -17,11 +17,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('toggle-command-palette', handler);
     return () => ipcRenderer.removeListener('toggle-command-palette', handler);
   },
-  // flowmate://oauth/callback?... forwarded from the main process after the browser login
-  onOAuthCallback: (callback) => {
-    const handler = (_event, url) => callback(url);
-    ipcRenderer.on('oauth-callback', handler);
-    return () => ipcRenderer.removeListener('oauth-callback', handler);
+  // Auth lives in the main process; the renderer never sees the token
+  auth: {
+    getState: () => ipcRenderer.invoke('auth:get-state'),
+    startLogin: () => ipcRenderer.invoke('auth:start-login'),
+    clear: () => ipcRenderer.invoke('auth:clear'),
+    onResult: (callback) => {
+      const handler = (_event, result) => callback(result);
+      ipcRenderer.on('auth:result', handler);
+      return () => ipcRenderer.removeListener('auth:result', handler);
+    },
   },
   onMeetingShortcut: (callback) => {
     const handler = () => callback();

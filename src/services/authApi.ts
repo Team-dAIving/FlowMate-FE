@@ -1,13 +1,8 @@
 import { User } from '../types';
 import { http } from './http';
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
-
-/** GET this URL in the system browser to start the GitHub OAuth flow. */
-export const GITHUB_LOGIN_URL = `${BASE_URL}/oauth2/authorization/github`;
-
-/** The backend redirects here after OAuth: flowmate://oauth/callback?accessToken=...&onboardingRequired=true|false */
-export const OAUTH_CALLBACK_PROTOCOL = 'flowmate:';
+// The GitHub OAuth flow and the JWT are handled by the Electron main process (electron/auth.cjs).
+// These calls are authenticated by the header that process attaches.
 
 export const NICKNAME_LIMITS = { MAX: 30 } as const;
 
@@ -38,27 +33,6 @@ const toAuthUser = (dto: AuthUserDto): AuthUser => ({
     userCode: dto.userCode,
   },
 });
-
-export interface OAuthCallbackResult {
-  accessToken?: string;
-  onboardingRequired: boolean;
-  error?: string;
-}
-
-/** Parses flowmate://oauth/callback?... Returns null for any other URL. */
-export function parseOAuthCallback(rawUrl: string): OAuthCallbackResult | null {
-  try {
-    const url = new URL(rawUrl);
-    if (url.protocol !== OAUTH_CALLBACK_PROTOCOL) return null;
-    return {
-      accessToken: url.searchParams.get('accessToken') || undefined,
-      onboardingRequired: url.searchParams.get('onboardingRequired') === 'true',
-      error: url.searchParams.get('error') || undefined,
-    };
-  } catch {
-    return null;
-  }
-}
 
 export const authApi = {
   // GET /api/auth/me

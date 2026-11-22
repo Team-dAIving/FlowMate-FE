@@ -1,3 +1,15 @@
+export type AuthResult =
+  | { ok: true; onboardingRequired: boolean }
+  | { ok: false; error: string };
+
+/** Main-process auth. The JWT stays in the main process; none of these return it. */
+export interface ElectronAuthAPI {
+  getState: () => Promise<{ loggedIn: boolean; apiConfigured: boolean }>;
+  startLogin: () => Promise<{ ok: boolean; message?: string }>;
+  clear: () => Promise<void>;
+  onResult: (callback: (result: AuthResult) => void) => () => void;
+}
+
 export interface ElectronAPI {
   isElectron: boolean;
   platform: string;
@@ -8,7 +20,7 @@ export interface ElectronAPI {
   maximizeWindow: () => void;
   closeWindow: () => void;
   onCommandPalette: (callback: () => void) => () => void;
-  onOAuthCallback: (callback: (url: string) => void) => () => void;
+  auth: ElectronAuthAPI;
   onMeetingShortcut: (callback: () => void) => () => void;
 }
 

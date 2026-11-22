@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut, Notification, s
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { createAuth } = require('./auth.cjs');
 
 let mainWindow = null;
 let tray = null;
@@ -127,9 +128,25 @@ function isTrustedSender(event) {
   return Boolean(mainWindow && event.sender === mainWindow.webContents && frame && isAppUrl(frame.url));
 }
 
+// ---- Auth (token lives only in this process, see auth.cjs) ----
+const auth = createAuth({
+  isDev,
+  appRoot: path.join(__dirname, '..'),
+  getMainWebContents: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null),
+});
+
+// Login results waiting for the renderer to finish loading
+let pendingAuthResult = null;
+function deliverAuthResult(result) {
+  if (mainWindow && !mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.send('auth:result', result);
+  } else {
+    pendingAuthResult = result;
+  }
+}
+
 // ---- flowmate:// deep link (GitHub OAuth callback) ----
 const PROTOCOL = 'flowmate';
-let pendingDeepLink = null;
 
 if (process.defaultApp && process.argv.length >= 2) {
   // Dev run (electron electron/main.cjs): the OS must launch electron with our script path
@@ -139,7 +156,7 @@ if (process.defaultApp && process.argv.length >= 2) {
 }
 
 // Only the OAuth callback is accepted; any other flowmate:// link is dropped.
-// (Whether a login was actually started is checked in the renderer, see useAuthStore.)
+// (Whether a login was actually started is checked in auth.handleCallback.)
 const OAUTH_CALLBACK_PREFIX = `${PROTOCOL}://oauth/callback`;
 const isOAuthCallback = (a) =>
   typeof a === 'string' &&
@@ -149,14 +166,16 @@ const findDeepLink = (argv) => argv.find(isOAuthCallback);
 
 function handleDeepLink(url) {
   if (!isOAuthCallback(url)) return;
-  if (mainWindow && !mainWindow.webContents.isLoading()) {
+  if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
-    mainWindow.webContents.send('oauth-callback', url);
-  } else {
-    pendingDeepLink = url; // window not ready yet: delivered on did-finish-load
   }
+  // The renderer only ever learns ok/error, never the token
+  auth
+    .handleCallback(url)
+    .then((result) => result && deliverAuthResult(result))
+    .catch((err) => console.error('[auth] callback failed:', err));
 }
 
 // Windows/Linux: a second launch (triggered by the flowmate:// link) passes the URL to the running instance
@@ -170,7 +189,7 @@ app.on('open-url', (event, url) => {
   event.preventDefault();
   handleDeepLink(url);
 });
-pendingDeepLink = findDeepLink(process.argv) || null;
+// A cold start via a flowmate:// link can't be a login this process started, so argv links are not processed.
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -214,9 +233,9 @@ function createWindow() {
   }
 
   mainWindow.webContents.on('did-finish-load', () => {
-    if (pendingDeepLink) {
-      mainWindow.webContents.send('oauth-callback', pendingDeepLink);
-      pendingDeepLink = null;
+    if (pendingAuthResult) {
+      mainWindow.webContents.send('auth:result', pendingAuthResult);
+      pendingAuthResult = null;
     }
   });
 
@@ -272,7 +291,9 @@ function createTray() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Restore the encrypted session and install the auth header hook before the app makes any request
+  await auth.ready;
   createWindow();
   createTray();
 
@@ -324,6 +345,20 @@ app.whenReady().then(() => {
       return { ok: false, message: `폴더를 찾을 수 없습니다: ${projectPath}` };
     }
     return openInIntellij(projectPath);
+  });
+
+  // Auth: the renderer can ask whether it is logged in, start a login, or log out. It can never read the token.
+  ipcMain.handle('auth:get-state', async (event) => {
+    if (!isTrustedSender(event)) return { loggedIn: false, apiConfigured: false };
+    return auth.getState();
+  });
+  ipcMain.handle('auth:start-login', async (event) => {
+    if (!isTrustedSender(event)) return { ok: false, message: '허용되지 않은 요청입니다.' };
+    return auth.startLogin();
+  });
+  ipcMain.handle('auth:clear', async (event) => {
+    if (!isTrustedSender(event)) return;
+    await auth.clear();
   });
 
   ipcMain.on('window-minimize', () => {

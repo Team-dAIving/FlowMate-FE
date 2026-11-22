@@ -1,18 +1,17 @@
 import React from 'react';
 import { Github } from 'lucide-react';
 import { Button } from '../ui/Button';
-import { GITHUB_LOGIN_URL } from '../../services/authApi';
 import { useAuthStore } from '../../store/useAuthStore';
 
 export const LoginPage: React.FC = () => {
   const loginError = useAuthStore((s) => s.loginError);
-  const beginLogin = useAuthStore((s) => s.beginLogin);
+  const isLoggingIn = useAuthStore((s) => s.isLoggingIn);
+  const startLogin = useAuthStore((s) => s.startLogin);
 
+  // The main process opens GitHub login in the system browser. The backend then redirects to
+  // flowmate://oauth/callback, which the main process handles; this page only gets ok/error back.
   const handleLogin = () => {
-    // Opens the system browser (Electron routes http(s) popups to it). After GitHub approves, the backend
-    // redirects to flowmate://oauth/callback, which the Electron main process hands back to this window.
-    beginLogin();
-    window.open(GITHUB_LOGIN_URL, '_blank', 'noopener,noreferrer');
+    void startLogin();
   };
 
   return (
@@ -22,10 +21,14 @@ export const LoginPage: React.FC = () => {
           <h1 className="text-xl font-bold tracking-tight">FlowMate</h1>
           <p className="text-xs text-text-secondary mt-1">GitHub 계정으로 로그인하세요.</p>
         </div>
+        {/* Stays clickable: if the browser tab was closed, no result ever comes back */}
         <Button onClick={handleLogin} className="w-full gap-2">
           <Github className="h-4 w-4" />
           <span>GitHub로 로그인</span>
         </Button>
+        {isLoggingIn && (
+          <p className="text-[11px] text-text-muted">브라우저에서 GitHub 로그인을 완료해주세요.</p>
+        )}
         {loginError && (
           <p role="alert" className="text-[11px] text-red-500">
             {loginError}

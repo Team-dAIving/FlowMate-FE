@@ -14,14 +14,10 @@ export class ApiError extends Error {
   }
 }
 
-// Auth: JWT sent in the "Authorization: Bearer <token>" header. The auth store plugs the token in here,
-// so this module never decides where tokens are stored.
-let authTokenProvider: () => string | null = () => null;
-export function setAuthTokenProvider(provider: () => string | null) {
-  authTokenProvider = provider;
-}
+// Auth: the JWT goes out as "Authorization: Bearer <token>", but it is attached by the Electron main
+// process (electron/auth.cjs) for requests to the API origin. This code never sees the token.
 
-// Called when the server rejects the token (401), so the app can drop it and show the login screen.
+// Called when the server rejects the session (401), so the app can drop it and show the login screen.
 let unauthorizedHandler: () => void = () => {};
 export function setUnauthorizedHandler(handler: () => void) {
   unauthorizedHandler = handler;
@@ -41,13 +37,11 @@ interface HttpOptions extends Omit<RequestInit, 'body'> {
 }
 
 export async function http<T>(path: string, { json, headers, ...init }: HttpOptions = {}): Promise<T> {
-  const token = authTokenProvider();
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
       Accept: 'application/json',
       ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
     body: json !== undefined ? JSON.stringify(json) : undefined,
@@ -64,7 +58,7 @@ export async function http<T>(path: string, { json, headers, ...init }: HttpOpti
   }
 
   if (!res.ok) {
-    if (res.status === 401 && token) unauthorizedHandler();
+    if (res.status === 401) unauthorizedHandler();
     throw new ApiError(res.status, extractMessage(body) ?? `요청에 실패했습니다. (HTTP ${res.status})`, body);
   }
   return body as T;
