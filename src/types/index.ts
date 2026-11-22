@@ -75,19 +75,23 @@ export const TEAM_LIMITS = {
 
 export type ProjectType = 'WEB' | 'APP' | 'AI' | 'EMBEDDED' | 'OTHER';
 
-export interface GitHubRepository {
-  id: number;
+export interface ProjectRepository {
+  id: string; // "owner/name" lowercased
+  position?: ProjectPosition; // undefined = shared by the whole project (e.g. a monorepo)
+  owner: string;
   name: string;
   fullName: string;
   htmlUrl: string;
-  isPrivate: boolean;
-  defaultBranch: string;
-  stars?: number;
 }
+
+// What a member does in this project (independent of the permission role)
+export type ProjectPosition = 'BACKEND' | 'FRONTEND' | 'DESIGN' | 'PM' | 'ETC';
 
 export interface ProjectMember {
   user: User;
-  role: UserRole;
+  role: UserRole; // permission (OWNER/ADMIN/MEMBER/VIEWER)
+  position?: ProjectPosition;
+  skills?: string[]; // tech stack this member uses in this project
 }
 
 export interface Project {
@@ -104,7 +108,10 @@ export interface Project {
   // Project leader (user id). Leader is a per-project concept, not a team one.
   // Older records without it fall back to the member with role OWNER (see utils/projectLeader).
   leaderId?: string;
-  githubRepo?: GitHubRepository;
+  // GitHub organization the project's repos live in (optional: repos may also be "owner/repo")
+  githubOrg?: string;
+  // One or more repos, each optionally tied to a part of the project (백엔드 repo, 프론트 repo, ...)
+  repositories?: ProjectRepository[];
   progress: number; // 0 to 100
   createdAt: string;
 }

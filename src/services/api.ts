@@ -6,7 +6,6 @@ import {
   Meeting,
   Notification,
   ActionItem,
-  GitHubRepository,
   Team,
   PublicUserProfile,
   USER_CODE_PATTERN,
@@ -26,6 +25,8 @@ import {
 import { USE_REAL_API } from './http';
 import { teamApi } from './teamApi';
 import { authApi } from './authApi';
+import { repoForPosition } from '../utils/github';
+import { daysFromTodayISO, todayISO } from '../utils/dates';
 
 const STORAGE_KEYS = {
   USER: 'flowmate_user',
@@ -38,20 +39,31 @@ const STORAGE_KEYS = {
   GITHUB_REPOS: 'flowmate_github_repos',
 };
 
-// Initialize LocalStorage with mock data if empty
+// Bump when mockData.ts changes story or shape: older seeded data is replaced on next start.
+// (2: student teams - hackathon / finance competition / capstone, instead of company departments)
+// (3: project members have a position and tech stack)
+// (4: GitHub organization + repositories per position instead of a single repo)
+const MOCK_DATA_VERSION = '4';
+const MOCK_GITHUB_ORGS = ['Team-dAIving', 'team-bamsaem', 'quant-house'];
+const MOCK_VERSION_KEY = 'flowmate_mock_version';
+const MOCK_KEYS = [
+  STORAGE_KEYS.USER,
+  STORAGE_KEYS.WORKSPACE,
+  STORAGE_KEYS.PROJECTS,
+  STORAGE_KEYS.TEAMS,
+  STORAGE_KEYS.TASKS,
+  STORAGE_KEYS.MEETINGS,
+  STORAGE_KEYS.NOTIFICATIONS,
+];
+
+// Initialize LocalStorage with mock data if empty (or seeded by an older mock version)
 function initStorage() {
+  if (localStorage.getItem(MOCK_VERSION_KEY) !== MOCK_DATA_VERSION) {
+    MOCK_KEYS.forEach((k) => localStorage.removeItem(k));
+    localStorage.setItem(MOCK_VERSION_KEY, MOCK_DATA_VERSION);
+  }
   if (!localStorage.getItem(STORAGE_KEYS.USER)) {
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
-  } else {
-    // Migration: users stored before userCode existed would never see their code on the dashboard
-    try {
-      const stored = JSON.parse(localStorage.getItem(STORAGE_KEYS.USER)!) as User;
-      if (!stored.userCode || stored.userCode !== currentUser.userCode) {
-        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify({ ...stored, userCode: currentUser.userCode }));
-      }
-    } catch {
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
-    }
   }
   if (!localStorage.getItem(STORAGE_KEYS.WORKSPACE)) {
     localStorage.setItem(STORAGE_KEYS.WORKSPACE, JSON.stringify(initialWorkspace));
@@ -248,6 +260,13 @@ export const api = {
     return { id: found.id, name: found.name, avatarUrl: found.avatarUrl, userCode: found.userCode };
   },
 
+  // GitHub organizations the user can pick at project creation.
+  // No backend endpoint yet: real mode returns [] and the form falls back to typing the org name.
+  getGitHubOrganizations: async (): Promise<string[]> => {
+    if (USE_REAL_API) return [];
+    return [...MOCK_GITHUB_ORGS];
+  },
+
   // 4. Tasks
   getTasks: async (projectId?: string): Promise<Task[]> => {
     const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
@@ -260,7 +279,9 @@ export const api = {
   createTask: async (taskData: Partial<Task>): Promise<Task> => {
     const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
-    const project = projects.find((p) => p.id === taskData.projectId) || projects[0];
+    // Never fall back to some other project: the task would silently land in the wrong team's board
+    const project = projects.find((p) => p.id === taskData.projectId);
+    if (!project) throw new Error('업무를 등록할 프로젝트를 찾을 수 없습니다.');
 
     const newTask: Task = {
       id: `task-${Date.now()}`,
@@ -271,9 +292,9 @@ export const api = {
       assignee: taskData.assignee || currentUser,
       priority: taskData.priority || 'MEDIUM',
       status: taskData.status || 'TODO',
-      startDate: taskData.startDate || new Date().toISOString().split('T')[0],
+      startDate: taskData.startDate || todayISO(),
       dueDate: taskData.dueDate,
-      estimatedHours: taskData.estimatedHours || 8,
+      estimatedHours: taskData.estimatedHours, // 0 is valid; undefined = not estimated
       actualHours: 0,
       comments: [],
       activities: [
@@ -345,12 +366,17 @@ export const api = {
     if (index === -1) throw new Error('Task not found');
 
     const task = tasks[index];
+    // The issue goes to the repo of the assignee's part (백엔드 task -> 백엔드 repo), else a shared/first repo
+    const project = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects).find((p) => p.id === task.projectId);
+    const assigneePosition = project?.members.find((m) => m.user.id === task.assignee?.id)?.position;
+    const repo = project ? repoForPosition(project, assigneePosition) : undefined;
+    if (!repo) throw new Error('이 프로젝트에 연결된 GitHub 레포지토리가 없습니다.');
     const issueNumber = Math.floor(Math.random() * 80) + 20;
     const githubIssue = {
       id: Date.now(),
       number: issueNumber,
       title: task.title,
-      htmlUrl: `https://github.com/dAIving/FlowMate-Core/issues/${issueNumber}`,
+      htmlUrl: `${repo.htmlUrl}/issues/${issueNumber}`,
       state: 'open' as const,
       createdAt: new Date().toISOString(),
     };
@@ -391,15 +417,17 @@ export const api = {
   createMeeting: async (meetingData: Partial<Meeting>): Promise<Meeting> => {
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
-    const project = projects.find((p) => p.id === meetingData.projectId) || projects[0];
+    const project = projects.find((p) => p.id === meetingData.projectId);
+    if (!project) throw new Error('회의를 저장할 프로젝트를 찾을 수 없습니다.');
 
     const newMeeting: Meeting = {
       id: `meet-${Date.now()}`,
       projectId: project.id,
       projectName: project.name,
       title: meetingData.title || '새로운 회의',
-      meetingDate: meetingData.meetingDate || new Date().toISOString().split('T')[0],
-      participants: meetingData.participants || [currentUser, teamMembers[1]],
+      meetingDate: meetingData.meetingDate || todayISO(),
+      // Default: that project's own team, not a fixed person (teammates differ per team)
+      participants: meetingData.participants || (project.members || []).map((m) => m.user),
       status: 'RECORDED',
       audioDurationSeconds: meetingData.audioDurationSeconds || 0,
       createdAt: new Date().toISOString(),
@@ -422,33 +450,37 @@ export const api = {
 
     const meeting = meetings[index];
 
-    // Mock Bedrock extracted result
+    // Mock AI result. Assign only people who were in this meeting (each team has different members).
+    const me = getStored<User>(STORAGE_KEYS.USER, currentUser);
+    const people = meeting.participants && meeting.participants.length > 0 ? meeting.participants : [me];
+    const teammate = people.find((p) => p.id !== me.id) || people[0];
+    const self = people.find((p) => p.id === me.id) || people[0];
     const simulatedActionItems: ActionItem[] = [
       {
         id: `ai-${Date.now()}-1`,
         meetingId: meeting.id,
-        title: '회의 분석 결과 검토 화면 스타일 가이드 준수 확인',
-        description: 'Linear/VSCode 미니멀 테마 및 JetBrains Mono 폰트 배지 적용',
-        assigneeId: teamMembers[2].id,
-        assigneeName: teamMembers[2].name,
-        dueDate: new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0],
-        priority: 'HIGH',
+        title: '회의에서 정한 역할 분담표 정리',
+        description: '이번 회의에서 나눈 담당 파트와 다음 회의까지 할 일을 팀 노션에 정리',
+        assigneeId: teammate.id,
+        assigneeName: teammate.name,
+        dueDate: daysFromTodayISO(2),
+        priority: 'MEDIUM',
         approvalStatus: 'PENDING',
         syncStatus: 'NONE',
-        sourceQuote: '정디자인: 개발자 친화적인 다크/라이트 테마와 상태 배지가 명확하게 보이도록 정리했습니다.',
+        sourceQuote: `${teammate.name}: 오늘 나눈 역할은 제가 정리해서 공유할게요.`,
       },
       {
         id: `ai-${Date.now()}-2`,
         meetingId: meeting.id,
-        title: 'Electron 트레이 및 단축키 전역 리스너 최적화',
-        description: '시스템 단축키 CommandOrControl+Alt+K 반응 속도 점검',
-        assigneeId: teamMembers[0].id,
-        assigneeName: teamMembers[0].name,
-        dueDate: new Date(Date.now() + 86400000 * 5).toISOString().split('T')[0],
-        priority: 'MEDIUM',
+        title: '제출 마감 전 최종 점검 일정 잡기',
+        description: '마감 이틀 전까지 결과물 리허설과 제출 서류 확인 일정 확정',
+        assigneeId: self.id,
+        assigneeName: self.name,
+        dueDate: daysFromTodayISO(4),
+        priority: 'HIGH',
         approvalStatus: 'PENDING',
         syncStatus: 'NONE',
-        sourceQuote: '이아키: 단축키는 어디서나 즉시 호출될 수 있도록 전역으로 등록해야 합니다.',
+        sourceQuote: `${self.name}: 마감 직전에 몰리지 않게 리허설 날짜부터 정해요.`,
       },
     ];
 
@@ -457,10 +489,10 @@ export const api = {
       status: 'ANALYZED',
       summary:
         meeting.summary ||
-        '회의를 통해 실시간 오디오 녹음 파이프라인과 Bedrock 모델 기반의 Action Items 추출 테스트를 완료함. 모든 추출 업무는 검토 후 수동 승인을 거쳐 생성하기로 확정.',
+        '팀원별 진행 상황을 공유하고 남은 기간의 역할을 나눔. AI가 뽑은 할 일은 팀원이 검토하고 승인한 것만 업무로 등록하기로 함.',
       decisions: meeting.decisions && meeting.decisions.length > 0 ? meeting.decisions : [
-        'AI 분석 결과는 사용자 승인 후 실제 작업으로 등록',
-        'Spring Boot 및 AWS 인프라 환경 변수 분리 철저',
+        'AI가 뽑은 할 일은 승인한 것만 업무로 등록',
+        '마감 이틀 전에 최종 리허설 진행',
       ],
       actionItems: [...(meeting.actionItems || []), ...simulatedActionItems],
     };

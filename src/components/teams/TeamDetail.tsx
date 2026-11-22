@@ -19,6 +19,7 @@ import { Button } from '../ui/Button';
 import { Avatar } from '../ui/Avatar';
 import { TaskListView } from '../tasks/TaskListView';
 import { formatDate } from '../../utils/formatters';
+import { projectProgress } from '../../utils/progress';
 
 export const TeamDetail: React.FC = () => {
   const { teams } = useTeamStore();
@@ -41,7 +42,7 @@ export const TeamDetail: React.FC = () => {
     );
   }
 
-  // Team API returns only { id, name, key } per project — enrich with locally loaded project details if any
+  // Team API returns only { id, name, subject } per project — enrich with locally loaded project details if any
   const teamProjects = team.projects.map((summary) => ({
     summary,
     detail: projects.find((p) => p.id === summary.id),
@@ -54,8 +55,8 @@ export const TeamDetail: React.FC = () => {
   const activeTasks = teamTasks.filter((t) => t.status !== 'DONE');
 
   const tabs = [
-    { id: 'projects', label: '담당 프로젝트 (Projects)', count: team.projects?.length || 0 },
-    { id: 'members', label: '소속 팀원 (Members)', count: team.memberCount },
+    { id: 'projects', label: '팀 프로젝트 (Projects)', count: team.projects?.length || 0 },
+    { id: 'members', label: '팀원 (Members)', count: team.memberCount },
     { id: 'tasks', label: '팀 업무 현황 (Team Tasks)', count: teamTasks.length },
   ];
 
@@ -160,12 +161,12 @@ export const TeamDetail: React.FC = () => {
                     <div className="space-y-1 pt-1">
                       <div className="flex items-center justify-between text-[11px] font-mono">
                         <span className="text-text-muted">프로젝트 전체 진행률</span>
-                        <span className="font-bold text-text-primary">{detail.progress}%</span>
+                        <span className="font-bold text-text-primary">{projectProgress(detail.id, tasks)}%</span>
                       </div>
                       <div className="w-full bg-border/60 h-1.5 rounded-full overflow-hidden">
                         <div
                           className="bg-primary h-full rounded-full transition-all duration-300"
-                          style={{ width: `${detail.progress}%` }}
+                          style={{ width: `${projectProgress(detail.id, tasks)}%` }}
                         />
                       </div>
                     </div>
@@ -173,10 +174,13 @@ export const TeamDetail: React.FC = () => {
 
                     <div className="flex items-center justify-between text-[11px] font-mono text-text-muted pt-2 border-t border-border/50">
                       <span>우리 팀 담당 업무: {projTeamTasks.length}건</span>
-                      {detail?.githubRepo && (
+                      {(detail?.repositories || []).length > 0 && (
                         <span className="flex items-center gap-1 text-text-secondary">
                           <GitBranch className="h-3 w-3" />
-                          <span>{detail.githubRepo.name}</span>
+                          <span>
+                            {detail!.repositories![0].name}
+                            {detail!.repositories!.length > 1 ? ` +${detail!.repositories!.length - 1}` : ''}
+                          </span>
                         </span>
                       )}
                     </div>

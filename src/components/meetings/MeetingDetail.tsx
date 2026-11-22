@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   Sparkles,
@@ -29,13 +29,16 @@ import { Input, Textarea } from '../ui/Input';
 import { getProjectMemberUsers } from '../../utils/projectMembers';
 import { ActionItem, TaskPriority } from '../../types';
 import { formatDate, formatDuration } from '../../utils/formatters';
+import { daysFromTodayISO } from '../../utils/dates';
+import { safeHref } from '../../utils/github';
 
 export const MeetingDetail: React.FC = () => {
   const { selectedMeetingId, setCurrentView, projects, currentUser } = useWorkspaceStore();
   const { meetings, approveActionItem, rejectActionItem, analyzeMeeting, isAnalyzing } = useMeetingStore();
   const { fetchTasks } = useTaskStore();
 
-  const meeting = meetings.find((m) => m.id === selectedMeetingId) || meetings[0];
+  // No silent fallback to another meeting: that would show (and let you approve) the wrong team's items
+  const meeting = meetings.find((m) => m.id === selectedMeetingId);
 
   const [activeTab, setActiveTab] = useState<'summary' | 'action-items' | 'transcript'>('action-items');
 
@@ -47,8 +50,25 @@ export const MeetingDetail: React.FC = () => {
   const [editDueDate, setEditDueDate] = useState('');
   const [editPriority, setEditPriority] = useState<TaskPriority>('MEDIUM');
   const [createGitHubIssueOnApprove, setCreateGitHubIssueOnApprove] = useState(true);
+  const [busyItemId, setBusyItemId] = useState<string | null>(null); // approve/reject in flight
+  const [actionError, setActionError] = useState('');
 
-  if (!meeting) return null;
+  // This view stays mounted across meetings: drop an open edit/error from the previous one
+  useEffect(() => {
+    setEditingId(null);
+    setActionError('');
+  }, [selectedMeetingId]);
+
+  if (!meeting) {
+    return (
+      <div className="p-12 text-center space-y-3">
+        <p className="text-xs text-text-muted">회의를 찾을 수 없습니다. 삭제되었거나 다른 팀의 회의일 수 있습니다.</p>
+        <Button size="sm" variant="outline" onClick={() => setCurrentView('meetings')}>
+          회의 목록으로
+        </Button>
+      </div>
+    );
+  }
 
   // Action item 담당자는 회의가 속한 프로젝트의 멤버로 한정
   const projectMembers = getProjectMemberUsers(projects.find((p) => p.id === meeting.projectId), currentUser);
@@ -64,7 +84,7 @@ export const MeetingDetail: React.FC = () => {
     setEditAssigneeId(
       projectMembers.some((m) => m.id === item.assigneeId) ? item.assigneeId! : currentUser?.id || projectMembers[0]?.id || ''
     );
-    setEditDueDate(item.dueDate || '2026-11-25');
+    setEditDueDate(item.dueDate || daysFromTodayISO(7));
     setEditPriority(item.priority);
   };
 
@@ -73,24 +93,44 @@ export const MeetingDetail: React.FC = () => {
   };
 
   const handleApprove = async (item: ActionItem) => {
-    await approveActionItem(meeting.id, item.id, {
-      createGitHubIssue: createGitHubIssueOnApprove,
-      customData: editingId === item.id ? {
-        title: editTitle,
-        description: editDesc,
-        assigneeId: editAssigneeId,
-        assigneeName: projectMembers.find((m) => m.id === editAssigneeId)?.name,
-        dueDate: editDueDate,
-        priority: editPriority,
-      } : undefined,
-    });
-    setEditingId(null);
-    await fetchTasks();
+    // A double click used to create the task (and GitHub issue) twice
+    if (busyItemId) return;
+    setBusyItemId(item.id);
+    setActionError('');
+    try {
+      await approveActionItem(meeting.id, item.id, {
+        createGitHubIssue: createGitHubIssueOnApprove,
+        customData: editingId === item.id ? {
+          title: editTitle,
+          description: editDesc,
+          assigneeId: editAssigneeId,
+          assigneeName: projectMembers.find((m) => m.id === editAssigneeId)?.name,
+          dueDate: editDueDate,
+          priority: editPriority,
+        } : undefined,
+      });
+      setEditingId(null);
+      await fetchTasks();
+    } catch (err) {
+      console.error(err);
+      setActionError(err instanceof Error && err.message ? err.message : '승인에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setBusyItemId(null);
+    }
   };
 
   const handleReject = async (itemId: string) => {
-    if (window.confirm('이 Action Item을 거절하시겠습니까?')) {
+    if (busyItemId) return;
+    if (!window.confirm('이 Action Item을 거절하시겠습니까?')) return;
+    setBusyItemId(itemId);
+    setActionError('');
+    try {
       await rejectActionItem(meeting.id, itemId);
+    } catch (err) {
+      console.error(err);
+      setActionError(err instanceof Error && err.message ? err.message : '거절에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setBusyItemId(null);
     }
   };
 
@@ -116,7 +156,7 @@ export const MeetingDetail: React.FC = () => {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-surface-hover border border-border text-text-secondary">
-                {meeting.projectName || 'FlowMate Platform'}
+                {meeting.projectName || '프로젝트'}
               </span>
               <span className="font-mono text-xs text-text-muted">
                 {formatDate(meeting.meetingDate)}
@@ -155,6 +195,11 @@ export const MeetingDetail: React.FC = () => {
       {/* Tab 1: Action Items (Approval flow - Section 4.7) */}
       {activeTab === 'action-items' && (
         <div className="space-y-5">
+          {actionError && (
+            <p role="alert" className="text-[11px] text-red-500">
+              {actionError}
+            </p>
+          )}
           {/* Guiding principle alert banner */}
           <div className="p-3.5 rounded-lg border border-primary/20 bg-primary-light/40 flex items-start justify-between gap-3 text-xs">
             <div className="flex items-start gap-2.5">
@@ -298,7 +343,7 @@ export const MeetingDetail: React.FC = () => {
                           <Button size="sm" variant="outline" onClick={cancelEdit}>
                             취소
                           </Button>
-                          <Button size="sm" onClick={() => handleApprove(item)}>
+                          <Button size="sm" onClick={() => handleApprove(item)} isLoading={busyItemId === item.id} disabled={busyItemId !== null}>
                             저장 및 승인
                           </Button>
                         </div>
@@ -340,7 +385,7 @@ export const MeetingDetail: React.FC = () => {
                                 <span>FlowMate 업무 생성 완료</span>
                                 {item.githubIssueUrl && (
                                   <a
-                                    href={item.githubIssueUrl}
+                                    href={safeHref(item.githubIssueUrl)}
                                     target="_blank"
                                     rel="noreferrer"
                                     className="text-primary hover:underline flex items-center gap-0.5 ml-2 font-mono text-[11px]"
@@ -357,6 +402,8 @@ export const MeetingDetail: React.FC = () => {
                                   size="sm"
                                   variant="primary"
                                   onClick={() => handleApprove(item)}
+                                  isLoading={busyItemId === item.id}
+                                  disabled={busyItemId !== null}
                                   className="text-xs h-7 gap-1"
                                 >
                                   <Check className="h-3.5 w-3.5" />
@@ -421,7 +468,7 @@ export const MeetingDetail: React.FC = () => {
                   <div key={user.id} className="flex items-center gap-2">
                     <Avatar src={user.avatarUrl} name={user.name} size="xs" />
                     <span className="font-medium text-text-primary">{user.name}</span>
-                    <span className="text-[10px] text-text-muted">({user.department})</span>
+                    {user.department && <span className="text-[10px] text-text-muted">({user.department})</span>}
                   </div>
                 ))}
               </div>

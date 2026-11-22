@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   GitBranch,
   Calendar,
@@ -19,6 +19,7 @@ import { getProjectMemberUsers } from '../../utils/projectMembers';
 import { useTaskStore } from '../../store/useTaskStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { formatDate, formatTimeAgo } from '../../utils/formatters';
+import { safeHref } from '../../utils/github';
 
 export interface TaskDetailModalProps {
   taskId: string | null;
@@ -30,6 +31,13 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
   const { currentUser, projects } = useWorkspaceStore();
   const [commentInput, setCommentInput] = useState('');
   const [isSyncingGitHub, setIsSyncingGitHub] = useState(false);
+  const [issueError, setIssueError] = useState('');
+
+  // The modal stays mounted while the task changes: don't carry a half-typed comment or an old error over
+  useEffect(() => {
+    setCommentInput('');
+    setIssueError('');
+  }, [taskId]);
 
   const task = tasks.find((t) => t.id === taskId);
   if (!task) return null;
@@ -71,11 +79,14 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
   };
 
   const handleCreateGitHubIssue = async () => {
+    if (isSyncingGitHub) return;
     setIsSyncingGitHub(true);
+    setIssueError('');
     try {
       await createGitHubIssue(task.id);
     } catch (err) {
       console.error(err);
+      setIssueError(err instanceof Error && err.message ? err.message : 'GitHub Issue를 만들지 못했습니다.');
     } finally {
       setIsSyncingGitHub(false);
     }
@@ -134,7 +145,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
             {task.githubIssue ? (
               <div className="flex items-center justify-between text-xs pt-1">
                 <a
-                  href={task.githubIssue.htmlUrl}
+                  href={safeHref(task.githubIssue.htmlUrl)}
                   target="_blank"
                   rel="noreferrer"
                   className="text-primary hover:underline flex items-center gap-1 font-mono text-[11px]"
@@ -162,6 +173,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
                   <span>GitHub Issue 생성</span>
                 </Button>
               </div>
+            )}
+            {issueError && (
+              <p role="alert" className="text-[11px] text-red-500 pt-1">
+                {issueError}
+              </p>
             )}
           </div>
 
@@ -196,7 +212,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
                 placeholder="댓글 남기기..."
                 value={commentInput}
                 onChange={(e) => setCommentInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
+                onKeyDown={(e) => {
+                // Korean IME: the Enter that commits the last syllable must not also send the comment
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddComment();
+              }}
                 className="flex-1 h-8 rounded-md border border-border bg-surface px-3 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
               <Button size="sm" onClick={handleAddComment} className="h-8">
@@ -279,7 +298,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
                 예상 시간
               </label>
               <div className="font-mono text-xs text-text-primary p-1.5 rounded border border-border bg-surface">
-                {task.estimatedHours || 0}h
+                {task.estimatedHours ?? '-'}{task.estimatedHours !== undefined ? 'h' : ''}
               </div>
             </div>
             <div>
@@ -287,7 +306,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
                 실제 소요
               </label>
               <div className="font-mono text-xs text-text-primary p-1.5 rounded border border-border bg-surface">
-                {task.actualHours || 0}h
+                {task.actualHours ?? 0}h
               </div>
             </div>
           </div>

@@ -39,7 +39,7 @@ export const Sidebar: React.FC = () => {
   const navItems: { view: AppView; label: string; icon: React.ReactNode }[] = [
     { view: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
     { view: 'projects', label: 'Projects', icon: <FolderKanban className="h-4 w-4" /> },
-    { view: 'teams', label: 'Teams & Squads', icon: <Users2 className="h-4 w-4" /> },
+    { view: 'teams', label: 'Teams', icon: <Users2 className="h-4 w-4" /> },
     { view: 'tasks', label: 'All Issues', icon: <ListTodo className="h-4 w-4" /> },
     { view: 'meetings', label: 'Meetings', icon: <Video className="h-4 w-4" /> },
   ];
@@ -181,7 +181,7 @@ export const Sidebar: React.FC = () => {
                   <div className="flex items-center gap-2 truncate">
                     <span className="truncate">{proj.name}</span>
                   </div>
-                  {proj.githubRepo && (
+                  {(proj.repositories || []).length > 0 && (
                     <GitBranch className="h-3 w-3 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                   )}
                 </button>
@@ -209,10 +209,10 @@ export const Sidebar: React.FC = () => {
             <Avatar src={currentUser?.avatarUrl} name={currentUser?.name} size="sm" />
             <div className="min-w-0">
               <div className="text-xs font-semibold text-text-primary truncate">
-                {currentUser?.name || 'Developer'}
+                {currentUser?.name || '사용자'}
               </div>
               <div className="text-[10px] text-text-muted truncate">
-                {currentUser?.department || 'Core Team'}
+                {currentUser?.department || ''}
               </div>
             </div>
           </div>

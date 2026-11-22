@@ -4,6 +4,7 @@ import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTeamStore } from '../../store/useTeamStore';
 import { getProjectTeams } from '../../utils/projectTeams';
 import { getProjectLeader } from '../../utils/projectLeader';
+import { projectProgress } from '../../utils/progress';
 import { useTaskStore } from '../../store/useTaskStore';
 import { useUIStore } from '../../store/useUIStore';
 import { Card } from '../ui/Card';
@@ -23,7 +24,6 @@ export const ProjectList: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>
-          <div className="text-xs font-mono text-text-muted">~/workspace/projects</div>
           <h1 className="text-xl font-bold text-text-primary tracking-tight mt-1 flex items-center gap-2">
             <FolderKanban className="h-5 w-5 text-primary" />
             <span>프로젝트 목록 (Projects)</span>
@@ -49,9 +49,7 @@ export const ProjectList: React.FC = () => {
           const projectTeams = getProjectTeams(proj.id, teams);
           const leader = getProjectLeader(proj);
           const projTasks = tasks.filter((t) => t.projectId === proj.id);
-          const doneTasks = projTasks.filter((t) => t.status === 'DONE').length;
-          const calculatedProgress =
-            projTasks.length > 0 ? Math.round((doneTasks / projTasks.length) * 100) : proj.progress;
+          const calculatedProgress = projectProgress(proj.id, projTasks);
 
           return (
             <Card
@@ -61,7 +59,7 @@ export const ProjectList: React.FC = () => {
               className="p-4 flex flex-col justify-between space-y-4 group"
             >
               <div className="space-y-3">
-                {/* Top: Key & Type */}
+                {/* Top: project type */}
                 <div className="flex items-center justify-between">
                   <Badge variant="default" className="text-[10px] uppercase font-mono">
                     {proj.projectType}
@@ -108,7 +106,7 @@ export const ProjectList: React.FC = () => {
                   {proj.techStack.slice(0, 4).map((tech) => (
                     <span
                       key={tech}
-                      className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-hover text-text-muted border border-border/60"
+                      className="text-[10px] font-mono px-1.5 py-px rounded bg-surface-hover text-text-muted border border-border/60"
                     >
                       {tech}
                     </span>
@@ -154,10 +152,11 @@ export const ProjectList: React.FC = () => {
                     )}
                   </div>
 
-                  {proj.githubRepo && (
-                    <span className="text-[11px] font-mono flex items-center gap-1 text-text-secondary hover:text-text-primary">
-                      <GitBranch className="h-3 w-3" />
-                      <span>{proj.githubRepo.name}</span>
+                  {(proj.repositories || []).length > 0 && (
+                    <span className="text-[11px] font-mono flex items-center gap-1 text-text-secondary min-w-0" title={(proj.repositories || []).map((r) => r.fullName).join('\n')}>
+                      <GitBranch className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{proj.repositories![0].name}</span>
+                      {proj.repositories!.length > 1 && <span className="text-text-muted shrink-0">+{proj.repositories!.length - 1}</span>}
                     </span>
                   )}
                 </div>

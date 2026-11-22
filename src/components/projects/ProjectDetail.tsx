@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   PieChart,
   Pie,
@@ -48,6 +48,12 @@ import { formatDate } from '../../utils/formatters';
 import { getProjectLeader } from '../../utils/projectLeader';
 import { api } from '../../services/api';
 import { ProjectIdeButtons } from './ProjectIdeButtons';
+import { MemberRoleEditor } from './MemberRoleEditor';
+import { MeetingStatusBadge } from '../meetings/MeetingStatusBadge';
+import { ProjectMember, ProjectPosition } from '../../types';
+import { positionColor, positionLabel, projectTechStack } from '../../utils/positions';
+import { safeHref } from '../../utils/github';
+import { projectProgress } from '../../utils/progress';
 
 export const ProjectDetail: React.FC = () => {
   const { currentProjectId, projects, setCurrentView, fetchProjects } = useWorkspaceStore();
@@ -57,9 +63,30 @@ export const ProjectDetail: React.FC = () => {
   const { setCreateTaskModalOpen, setRecordMeetingModalOpen, setSelectedTaskIdForDetail } = useUIStore();
 
   const [activeTab, setActiveTab] = useState<'overview' | 'issues' | 'board' | 'timeline' | 'meetings' | 'members'>('overview');
+  // Members tab: editing one member's position & tech stack at a time
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [draftRole, setDraftRole] = useState<{ position?: ProjectPosition; skills: string[] }>({ skills: [] });
+  const [memberSaveError, setMemberSaveError] = useState('');
+  const [isSavingMember, setIsSavingMember] = useState(false);
+  // This view stays mounted across projects, and the same person is in several projects:
+  // close any open member editor when the project changes so a draft never lands in the wrong one.
+  useEffect(() => {
+    setEditingMemberId(null);
+    setMemberSaveError('');
+  }, [currentProjectId]);
 
-  const project = projects.find((p) => p.id === currentProjectId) || projects[0];
-  if (!project) return null;
+  // No silent fallback to another project: it would show (and let you edit) the wrong team's work
+  const project = projects.find((p) => p.id === currentProjectId);
+  if (!project) {
+    return (
+      <div className="p-12 text-center space-y-3">
+        <p className="text-xs text-text-muted">프로젝트를 찾을 수 없습니다. 삭제되었거나 접근할 수 없는 프로젝트입니다.</p>
+        <Button size="sm" variant="outline" onClick={() => setCurrentView('projects')}>
+          프로젝트 목록으로
+        </Button>
+      </div>
+    );
+  }
 
   const projectTasks = tasks.filter((t) => t.projectId === project.id);
   const projectMeetings = meetings.filter((m) => m.projectId === project.id);
@@ -79,6 +106,33 @@ export const ProjectDetail: React.FC = () => {
       await fetchProjects();
     } catch (err) {
       console.error('Failed to change project leader:', err);
+    }
+  };
+
+  const startEditMember = (m: ProjectMember) => {
+    setEditingMemberId(m.user.id);
+    setDraftRole({ position: m.position, skills: m.skills || [] });
+    setMemberSaveError('');
+  };
+
+  // Save one member's position/skills; the project stack keeps manual extras and follows members' picks
+  const saveMemberRole = async () => {
+    if (!editingMemberId || isSavingMember) return;
+    const members = project.members.map((m) =>
+      m.user.id === editingMemberId ? { ...m, position: draftRole.position, skills: draftRole.skills } : m
+    );
+    const memberSkills = new Set(project.members.flatMap((m) => m.skills || []).map((s) => s.toLowerCase()));
+    const manualExtras = (project.techStack || []).filter((s) => !memberSkills.has(s.toLowerCase()));
+    setIsSavingMember(true);
+    try {
+      await api.updateProject(project.id, { members, techStack: projectTechStack(members, manualExtras) });
+      await fetchProjects();
+      setEditingMemberId(null);
+    } catch (err) {
+      console.error('Failed to save member role:', err);
+      setMemberSaveError('저장에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setIsSavingMember(false);
     }
   };
 
@@ -120,8 +174,7 @@ export const ProjectDetail: React.FC = () => {
     { day: '11.18', completed: statusCounts.DONE || 6, created: 2 },
   ];
 
-  const totalTasks = projectTasks.length || 1;
-  const calculatedProgress = Math.round((statusCounts.DONE / totalTasks) * 100);
+  const calculatedProgress = projectProgress(project.id, projectTasks);
 
   const tabs = [
     { id: 'overview', label: 'Overview & Dashboard', icon: <BarChart3 className="h-3.5 w-3.5" /> },
@@ -159,21 +212,29 @@ export const ProjectDetail: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {/* key: this view stays mounted when switching projects; remount so the saved path is re-read */}
           <ProjectIdeButtons key={project.id} projectId={project.id} />
-          {project.githubRepo && (
+          {(project.repositories || []).map((repo) => (
             <a
-              href={project.githubRepo.htmlUrl}
+              key={repo.id}
+              href={safeHref(repo.htmlUrl)}
               target="_blank"
               rel="noreferrer"
+              title={repo.fullName}
               className="h-8 px-2.5 rounded-md border border-border bg-surface hover:bg-surface-hover text-xs font-mono text-text-secondary hover:text-text-primary flex items-center gap-1.5 shadow-subtle transition-colors"
             >
               <GitBranch className="h-3.5 w-3.5" />
-              <span>{project.githubRepo.name}</span>
+              <span
+                className="text-[10px] font-sans font-semibold px-1 rounded text-white"
+                style={{ backgroundColor: positionColor(repo.position) }}
+              >
+                {positionLabel(repo.position) ?? '공통'}
+              </span>
+              <span>{repo.name}</span>
               <ExternalLink className="h-3 w-3" />
             </a>
-          )}
+          ))}
 
           <Button
             size="sm"
@@ -267,7 +328,7 @@ export const ProjectDetail: React.FC = () => {
             </Card>
           </div>
 
-          {/* PROJECT DASHBOARD CHARTS (Merged from Team Dashboard per user request!) */}
+          {/* Project dashboard charts */}
           <div className="space-y-2">
             <div className="text-xs font-mono font-bold text-text-muted tracking-wider uppercase flex items-center gap-1.5">
               <BarChart3 className="h-4 w-4 text-primary" />
@@ -457,9 +518,7 @@ export const ProjectDetail: React.FC = () => {
               >
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-semibold text-text-primary truncate">{m.title}</h4>
-                  <Badge variant="status" className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                    AI 분석 완료
-                  </Badge>
+                  <MeetingStatusBadge status={m.status} />
                 </div>
                 <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
                   {m.summary}
@@ -476,21 +535,57 @@ export const ProjectDetail: React.FC = () => {
 
       {/* Tab 6: Members */}
       {activeTab === 'members' && (
-        <div className="border border-border rounded-lg bg-surface divide-y divide-border/60 overflow-hidden shadow-subtle max-w-2xl">
+        <div className="border border-border rounded-lg bg-surface divide-y divide-border/60 overflow-hidden shadow-subtle max-w-3xl">
           <div className="p-3 bg-surface-hover/50 text-[11px] font-mono font-semibold text-text-muted flex items-center justify-between">
-            <span>MEMBER</span>
+            <span>MEMBER · POSITION & STACK</span>
             <span>ROLE & ACCESS</span>
           </div>
           {project.members.map((m) => (
-            <div key={m.user.id} className="p-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            <div key={m.user.id} className="p-3 space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
                 <Avatar src={m.user.avatarUrl} name={m.user.name} size="sm" />
-                <div>
-                  <div className="text-xs font-semibold text-text-primary">{m.user.name}</div>
-                  <div className="text-[11px] text-text-muted">{m.user.email}</div>
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-text-primary">{m.user.name}</span>
+                    {m.position && (
+                      <span
+                        className="text-[10px] font-semibold px-1.5 py-0.5 rounded text-white"
+                        style={{ backgroundColor: positionColor(m.position) }}
+                      >
+                        {positionLabel(m.position)}
+                      </span>
+                    )}
+                  </div>
+                  {m.user.email && <div className="text-[11px] text-text-muted">{m.user.email}</div>}
+                  {editingMemberId !== m.user.id && (
+                    <div className="flex flex-wrap gap-1">
+                      {(m.skills || []).length === 0 ? (
+                        <span className="text-[11px] text-text-muted italic">역할·기술 스택 미입력</span>
+                      ) : (
+                        (m.skills || []).map((s) => (
+                          <span
+                            key={s}
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-hover text-text-secondary border border-border/60"
+                          >
+                            {s}
+                          </span>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
+                {editingMemberId !== m.user.id && (
+                  <button
+                    type="button"
+                    onClick={() => startEditMember(m)}
+                    className="text-[10px] text-text-muted hover:text-primary hover:underline"
+                  >
+                    역할 수정
+                  </button>
+                )}
                 {m.user.id === leader?.id ? (
                   <span className="text-[10px] font-semibold text-amber-600 flex items-center gap-1">
                     <Crown className="h-3 w-3" />
@@ -509,6 +604,25 @@ export const ProjectDetail: React.FC = () => {
                   {m.role}
                 </Badge>
               </div>
+            </div>
+            {editingMemberId === m.user.id && (
+              <div className="ml-11 p-3 rounded-lg border border-border bg-surface-hover/30 space-y-2">
+                <MemberRoleEditor
+                  position={draftRole.position}
+                  skills={draftRole.skills}
+                  onChange={(position, skills) => setDraftRole({ position, skills })}
+                />
+                {memberSaveError && <p className="text-[11px] text-red-500">{memberSaveError}</p>}
+                <div className="flex justify-end gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => setEditingMemberId(null)}>
+                    취소
+                  </Button>
+                  <Button type="button" size="sm" isLoading={isSavingMember} onClick={() => void saveMemberRole()}>
+                    저장
+                  </Button>
+                </div>
+              </div>
+            )}
             </div>
           ))}
         </div>
