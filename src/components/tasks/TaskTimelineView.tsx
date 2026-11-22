@@ -1,4 +1,5 @@
 import React from 'react';
+import { addDays, differenceInCalendarDays, format, isValid, parseISO, startOfDay } from 'date-fns';
 import { Task } from '../../types';
 import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
@@ -9,12 +10,22 @@ export interface TaskTimelineViewProps {
   onSelectTask: (taskId: string) => void;
 }
 
+const DAYS = 16;
+const DAYS_BEFORE_TODAY = 4;
+const GRID = { gridTemplateColumns: `repeat(${DAYS}, minmax(0, 1fr))` };
+
+const toDay = (s?: string) => {
+  if (!s) return undefined;
+  const d = parseISO(s);
+  return isValid(d) ? startOfDay(d) : undefined;
+};
+
 export const TaskTimelineView: React.FC<TaskTimelineViewProps> = ({ tasks, onSelectTask }) => {
-  // Timeline dates: 2026-11-10 to 2026-11-25 (16 days range)
-  const days = Array.from({ length: 16 }, (_, i) => {
-    const dayNum = 10 + i;
-    return `2026-11-${dayNum.toString().padStart(2, '0')}`;
-  });
+  // A 16-day window around today, computed from real dates (month boundaries included)
+  const today = startOfDay(new Date());
+  const windowStart = addDays(today, -DAYS_BEFORE_TODAY);
+  const days = Array.from({ length: DAYS }, (_, i) => addDays(windowStart, i));
+  const col = (d: Date) => differenceInCalendarDays(d, windowStart);
 
   return (
     <div className="border border-border rounded-lg bg-surface overflow-x-auto shadow-subtle">
@@ -23,17 +34,17 @@ export const TaskTimelineView: React.FC<TaskTimelineViewProps> = ({ tasks, onSel
         <div className="w-64 p-3 text-xs font-mono font-semibold text-text-muted shrink-0 border-r border-border/60">
           TASK / SCHEDULE
         </div>
-        <div className="flex-1 grid grid-cols-16 divide-x divide-border/40">
-          {days.map((d) => {
-            const isToday = d === '2026-11-18';
+        <div className="flex-1 grid divide-x divide-border/40" style={GRID}>
+          {days.map((d, i) => {
+            const isToday = i === DAYS_BEFORE_TODAY;
             return (
               <div
-                key={d}
-                className={`py-2 text-center font-mono text-[11px] shrink-0 ${
+                key={d.toISOString()}
+                className={`py-2 text-center font-mono text-[11px] ${
                   isToday ? 'bg-primary/10 text-primary font-bold' : 'text-text-muted'
                 }`}
               >
-                {d.slice(5)}
+                {format(d, 'MM.dd')}
               </div>
             );
           })}
@@ -42,13 +53,17 @@ export const TaskTimelineView: React.FC<TaskTimelineViewProps> = ({ tasks, onSel
 
       {/* Rows */}
       <div className="divide-y divide-border/40 min-w-[900px]">
+        {tasks.length === 0 && <div className="p-8 text-center text-xs text-text-muted">표시할 업무가 없습니다.</div>}
         {tasks.map((task) => {
-          // Calculate start & due offsets relative to 2026-11-10
-          const startDay = task.startDate ? parseInt(task.startDate.slice(8)) : 12;
-          const dueDay = task.dueDate ? parseInt(task.dueDate.slice(8)) : startDay + 4;
-
-          const startCol = Math.max(0, Math.min(15, startDay - 10));
-          const span = Math.max(1, Math.min(16 - startCol, dueDay - startDay + 1));
+          // Only start or only due: treat it as a one-day item on that date
+          let start = toDay(task.startDate) ?? toDay(task.dueDate);
+          let end = toDay(task.dueDate) ?? start;
+          if (start && end && end < start) [start, end] = [end, start];
+          const startIdx = start ? col(start) : undefined;
+          const endIdx = end ? col(end) : undefined;
+          const inView = startIdx !== undefined && endIdx !== undefined && endIdx >= 0 && startIdx < DAYS;
+          const startCol = inView ? Math.max(0, startIdx!) : 0;
+          const span = inView ? Math.min(DAYS - 1, endIdx!) - startCol + 1 : 0;
 
           return (
             <div
@@ -58,35 +73,30 @@ export const TaskTimelineView: React.FC<TaskTimelineViewProps> = ({ tasks, onSel
             >
               {/* Task name col */}
               <div className="w-64 px-3 flex items-center justify-between gap-2 shrink-0 border-r border-border/60 truncate">
-                <div className="flex items-center gap-2 truncate">
-                  <span className="text-xs font-medium text-text-primary truncate">
-                    {task.title}
-                  </span>
-                </div>
-                {task.assignee && (
-                  <Avatar src={task.assignee.avatarUrl} name={task.assignee.name} size="xs" />
-                )}
+                <span className="text-xs font-medium text-text-primary truncate">{task.title}</span>
+                {task.assignee && <Avatar src={task.assignee.avatarUrl} name={task.assignee.name} size="xs" />}
               </div>
 
-              {/* Bar track */}
-              <div className="flex-1 relative h-full flex items-center px-2">
-                {/* Today vertical line */}
+              {/* Bar track: same grid as the header so bars line up with the dates */}
+              <div className="flex-1 relative h-full grid items-center" style={GRID}>
                 <div
                   className="absolute top-0 bottom-0 w-px bg-primary/40 z-10 pointer-events-none"
-                  style={{ left: `${(8 / 16) * 100}%` }}
+                  style={{ left: `${((DAYS_BEFORE_TODAY + 0.5) / DAYS) * 100}%` }}
                 />
-
-                {/* Task Duration Bar */}
-                <div
-                  className="h-6 rounded bg-primary/20 border border-primary/50 px-2 flex items-center justify-between text-[10px] font-mono font-medium text-primary shadow-xs transition-all hover:bg-primary/30"
-                  style={{
-                    marginLeft: `${(startCol / 16) * 100}%`,
-                    width: `${(span / 16) * 100}%`,
-                  }}
-                >
-                  <span className="truncate">{task.title}</span>
-                  <Badge status={task.status} className="scale-75 origin-right" />
-                </div>
+                {inView ? (
+                  <div
+                    className="h-6 mx-0.5 rounded bg-primary/20 border border-primary/50 px-2 flex items-center justify-between text-[10px] font-mono font-medium text-primary shadow-sm transition-all hover:bg-primary/30 min-w-0"
+                    style={{ gridColumn: `${startCol + 1} / span ${span}` }}
+                    title={`${formatDate(task.startDate)} ~ ${formatDate(task.dueDate)}`}
+                  >
+                    <span className="truncate">{task.title}</span>
+                    <Badge status={task.status} className="scale-75 origin-right" />
+                  </div>
+                ) : (
+                  <span className="col-span-full px-3 text-[10px] text-text-muted">
+                    {start ? `표시 범위 밖 (${formatDate(task.startDate || task.dueDate, 'MM.dd')} ~ ${formatDate(task.dueDate || task.startDate, 'MM.dd')})` : '일정 없음'}
+                  </span>
+                )}
               </div>
             </div>
           );

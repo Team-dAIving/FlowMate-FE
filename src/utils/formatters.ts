@@ -24,7 +24,9 @@ export function formatTimeAgo(dateString?: string | null): string {
 }
 
 export function formatDuration(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
+  // Stored durations can be fractional or missing; show whole seconds ("02:05", not "02:05.333")
+  const total = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }

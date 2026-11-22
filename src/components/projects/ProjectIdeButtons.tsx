@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Code2, Settings2, Check, X } from 'lucide-react';
 import {
   IDE_OPTIONS,
@@ -22,6 +22,10 @@ export const ProjectIdeButtons: React.FC<ProjectIdeButtonsProps> = ({ projectId 
   const [error, setError] = useState('');
   const [openError, setOpenError] = useState('');
   const [launchingIde, setLaunchingIde] = useState<IdeId | null>(null);
+  const releaseTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (releaseTimer.current) window.clearTimeout(releaseTimer.current);
+  }, []);
 
   const startEditing = (ide: IdeId | null) => {
     setDraft(path);
@@ -39,7 +43,8 @@ export const ProjectIdeButtons: React.FC<ProjectIdeButtonsProps> = ({ projectId 
       if (message) setOpenError(message);
     } finally {
       // IDEs take a few seconds to show a window; keep the button disabled so it isn't clicked again meanwhile
-      setTimeout(() => setLaunchingIde(null), 3000);
+      if (releaseTimer.current) window.clearTimeout(releaseTimer.current);
+      releaseTimer.current = window.setTimeout(() => setLaunchingIde(null), 3000);
     }
   };
 

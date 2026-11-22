@@ -6,6 +6,7 @@ import { useTaskStore } from '../../store/useTaskStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { getMyProjects, getProjectMemberUsers } from '../../utils/projectMembers';
 import { TaskPriority } from '../../types';
+import { daysFromTodayISO } from '../../utils/dates';
 
 export interface TaskCreateModalProps {
   isOpen: boolean;
@@ -33,6 +34,13 @@ export const TaskCreateModal: React.FC<TaskCreateModalProps> = ({ isOpen, onClos
     const initial = mine.find((p) => p.id === currentProjectId) ? currentProjectId! : mine[0]?.id || '';
     setProjectId(initial);
     setAssigneeId(currentUser?.id || '');
+    // Reset the rest too, so the previous task's values never carry over
+    setTitle('');
+    setDescription('');
+    setPriority('MEDIUM');
+    setDueDate(daysFromTodayISO(7));
+    setEstimatedHours('8');
+    setSubmitError('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -43,31 +51,39 @@ export const TaskCreateModal: React.FC<TaskCreateModalProps> = ({ isOpen, onClos
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, projectMembers.map((m) => m.id).join(',')]);
-  const [dueDate, setDueDate] = useState('2026-11-25');
+  const [dueDate, setDueDate] = useState(() => daysFromTodayISO(7));
   const [estimatedHours, setEstimatedHours] = useState('8');
   const [isLoading, setIsLoading] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (isLoading) return;
+    if (!title.trim()) return setSubmitError('업무 제목을 입력해주세요.');
+    if (!myProjects.some((p) => p.id === projectId)) return setSubmitError('업무를 등록할 프로젝트를 선택해주세요.');
+    // Empty means "not estimated"; 0 is a real answer (it used to silently become 8)
+    const hoursText = estimatedHours.trim();
+    const hours = hoursText === '' ? undefined : Number(hoursText);
+    if (hours !== undefined && (!Number.isFinite(hours) || hours < 0 || hours > 1000))
+      return setSubmitError('예상 소요 시간은 0~1000 사이의 숫자로 입력해주세요.');
 
     setIsLoading(true);
+    setSubmitError('');
     try {
       const assignee = (projectMembers.find((m) => m.id === assigneeId) || currentUser) ?? undefined;
       await createTask({
-        projectId: projectId || myProjects[0]?.id,
+        projectId,
         title: title.trim(),
         description: description.trim(),
         priority,
         assignee,
         dueDate,
-        estimatedHours: Number(estimatedHours) || 8,
+        estimatedHours: hours,
       });
-      setTitle('');
-      setDescription('');
       onClose();
     } catch (err) {
       console.error(err);
+      setSubmitError(err instanceof Error && err.message ? err.message : '업무 등록에 실패했습니다.');
     } finally {
       setIsLoading(false);
     }
@@ -165,10 +181,19 @@ export const TaskCreateModal: React.FC<TaskCreateModalProps> = ({ isOpen, onClos
           <Input
             type="number"
             label="예상 소요 시간 (Hours)"
+            min={0}
+            max={1000}
+            step={0.5}
             value={estimatedHours}
             onChange={(e) => setEstimatedHours(e.target.value)}
           />
         </div>
+
+        {submitError && (
+          <p role="alert" className="text-[11px] text-red-500">
+            {submitError}
+          </p>
+        )}
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">

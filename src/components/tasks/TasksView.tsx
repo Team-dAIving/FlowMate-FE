@@ -41,14 +41,19 @@ export const TasksView: React.FC = () => {
     ? getProjectMemberUsers(currentProject, currentUser)
     : getCollaboratorUsers(projects, currentUser);
 
+  // The assignee filter lives in a global store; after switching projects it can point at someone
+  // who isn't in the dropdown anymore, which silently empties the list. Treat that as "everyone".
+  const effectiveAssigneeFilter =
+    assigneeFilter !== 'ALL' && assigneeFilterOptions.some((m) => m.id === assigneeFilter) ? assigneeFilter : 'ALL';
+
   // Filter tasks
+  const q = searchQuery.trim().toLowerCase();
   const filteredTasks = tasks.filter((t) => {
     if (currentProjectId && t.projectId !== currentProjectId) return false;
     if (statusFilter !== 'ALL' && t.status !== statusFilter) return false;
     if (priorityFilter !== 'ALL' && t.priority !== priorityFilter) return false;
-    if (assigneeFilter !== 'ALL' && t.assignee?.id !== assigneeFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+    if (effectiveAssigneeFilter !== 'ALL' && t.assignee?.id !== effectiveAssigneeFilter) return false;
+    if (q) {
       const matchTitle = t.title.toLowerCase().includes(q);
       const matchDesc = t.description.toLowerCase().includes(q);
       return matchTitle || matchDesc;
@@ -71,9 +76,6 @@ export const TasksView: React.FC = () => {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>
-          <div className="text-xs font-mono text-text-muted">
-            {currentProject ? `~/projects/${currentProject.name}/issues` : '~/workspace/all-issues'}
-          </div>
           <h1 className="text-xl font-bold text-text-primary tracking-tight mt-1">
             {currentProject ? `${currentProject.name} 업무 목록` : '전체 업무 관리 (All Issues)'}
           </h1>
@@ -178,7 +180,7 @@ export const TasksView: React.FC = () => {
 
           {/* Assignee filter */}
           <select
-            value={assigneeFilter}
+            value={effectiveAssigneeFilter}
             onChange={(e) => setAssigneeFilter(e.target.value)}
             className="h-8 px-2.5 rounded-md border border-border bg-surface text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
           >

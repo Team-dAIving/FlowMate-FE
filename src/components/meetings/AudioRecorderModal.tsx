@@ -7,6 +7,7 @@ import { WaveformVisualizer } from './WaveformVisualizer';
 import { useMeetingStore } from '../../store/useMeetingStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { formatDuration } from '../../utils/formatters';
+import { todayISO } from '../../utils/dates';
 
 export interface AudioRecorderModalProps {
   isOpen: boolean;
@@ -24,9 +25,24 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
   const [duration, setDuration] = useState(0);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
 
+  const [notice, setNotice] = useState(''); // e.g. no microphone -> demo mode
+  const [error, setError] = useState('');
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
+
+  // The modal stays mounted: start every recording clean, in the project the user is looking at
+  useEffect(() => {
+    if (!isOpen) return;
+    setTitle('');
+    setDuration(0);
+    setIsPaused(false);
+    setNotice('');
+    setError('');
+    setProjectId(projects.some((p) => p.id === currentProjectId) ? currentProjectId! : projects[0]?.id || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   // Timer
   useEffect(() => {
@@ -44,6 +60,10 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
 
   // Start Mic Recording
   const startRecording = async () => {
+    // Every recording starts at 00:00 (after a failed save the old duration used to keep counting)
+    setDuration(0);
+    setError('');
+    setNotice('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
@@ -56,7 +76,8 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
       setIsPaused(false);
     } catch (err) {
       console.warn('Microphone permission or hardware access issue. Falling back to simulated stream:', err);
-      // Simulated recording for dev / browser sandbox
+      // Simulated recording for dev / browser sandbox — but say so, instead of pretending to record
+      setNotice('마이크를 사용할 수 없어 시연용 모드로 진행합니다. 실제 음성은 녹음되지 않습니다.');
       setIsRecording(true);
       setIsPaused(false);
     }
@@ -87,27 +108,43 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
     setIsRecording(false);
     setIsProcessingAI(true);
 
+    setError('');
+    let newMeeting;
     try {
-      const newMeeting = await createMeeting({
-        projectId: projectId || projects[0]?.id,
-        title: title.trim() || `개발팀 회의 (${new Date().toLocaleDateString()})`,
-        meetingDate: new Date().toISOString().split('T')[0],
-        audioDurationSeconds: duration || 120,
+      newMeeting = await createMeeting({
+        projectId,
+        title: title.trim() || `팀 회의 (${new Date().toLocaleDateString()})`,
+        meetingDate: todayISO(),
+        audioDurationSeconds: duration, // real length (it used to invent 120s for short recordings)
       });
-
-      // AI Analysis
-      await analyzeMeeting(newMeeting.id);
-
-      setIsProcessingAI(false);
-      onClose();
-      setCurrentView('meeting-detail', newMeeting.id);
     } catch (err) {
+      // Nothing was saved: stay here so the user can try again
       console.error(err);
       setIsProcessingAI(false);
+      setError(err instanceof Error && err.message ? err.message : '회의를 저장하지 못했습니다.');
+      return;
+    }
+
+    // The meeting is saved from here on. If analysis fails, go to it (it can be re-analyzed there)
+    // instead of offering a retry here, which would save the same meeting twice.
+    let analysisFailed = false;
+    try {
+      await analyzeMeeting(newMeeting.id);
+    } catch (err) {
+      console.error(err);
+      analysisFailed = true;
+    }
+    setIsProcessingAI(false);
+    onClose();
+    setCurrentView('meeting-detail', newMeeting.id);
+    if (analysisFailed) {
+      window.alert('회의는 저장됐지만 AI 분석에 실패했습니다. 회의 상세에서 다시 분석할 수 있습니다.');
     }
   };
 
   const handleClose = () => {
+    // Saving/analysis in progress: closing now would yank the user to the meeting later from elsewhere
+    if (isProcessingAI) return;
     if (isRecording) {
       if (!window.confirm('녹음이 진행 중입니다. 정말 중단하고 닫으시겠습니까?')) {
         return;
@@ -157,7 +194,7 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
 
           <Input
             label="회의 제목 (Meeting Title)"
-            placeholder="예: 스프린트 14차 AI 파이프라인 리뷰"
+            placeholder="예: 해커톤 1일차 중간 점검"
             value={title}
             disabled={isRecording || isProcessingAI}
             onChange={(e) => setTitle(e.target.value)}
@@ -178,6 +215,13 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
             isRecording={isRecording && !isPaused}
           />
         </div>
+
+        {notice && <p className="text-[11px] text-amber-600">{notice}</p>}
+        {error && (
+          <p role="alert" className="text-[11px] text-red-500">
+            {error}
+          </p>
+        )}
 
         {/* Recording Controls */}
         <div className="p-4 rounded-lg border border-border bg-surface-hover/50 flex flex-col items-center justify-center space-y-3">

@@ -8,6 +8,7 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { formatDate, formatDuration } from '../../utils/formatters';
+import { MeetingStatusBadge } from './MeetingStatusBadge';
 
 export const MeetingList: React.FC = () => {
   const { meetings } = useMeetingStore();
@@ -19,7 +20,6 @@ export const MeetingList: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>
-          <div className="text-xs font-mono text-text-muted">~/workspace/meetings</div>
           <h1 className="text-xl font-bold text-text-primary tracking-tight mt-1 flex items-center gap-2">
             <Video className="h-5 w-5 text-primary" />
             <span>회의록 및 AI 음성 분석 (Meetings)</span>
@@ -66,16 +66,7 @@ export const MeetingList: React.FC = () => {
                     </span>
                   </div>
 
-                  {meeting.status === 'ANALYZED' ? (
-                    <Badge variant="status" className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                      <Sparkles className="h-3 w-3 inline mr-1 text-emerald-500" />
-                      AI 분석 완료
-                    </Badge>
-                  ) : (
-                    <Badge variant="default" className="text-text-muted">
-                      녹음 완료
-                    </Badge>
-                  )}
+                  <MeetingStatusBadge status={meeting.status} />
                 </div>
 
                 {/* Title */}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Search, X, UserPlus, Loader2 } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
@@ -31,7 +31,11 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
   // Current user is always auto-included as first member (cannot be removed)
   const [addedMembers, setAddedMembers] = useState<PublicUserProfile[]>([]);
 
+  // Bumped on every reset: a user-code lookup that finishes after the form was reset is discarded
+  const formSeq = useRef(0);
+
   const resetForm = () => {
+    formSeq.current += 1;
     setName('');
     setDescription('');
     setColor('#4F46E5');
@@ -63,7 +67,9 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
     setIsSearching(true);
     setSearchError('');
     try {
+      const seq = formSeq.current;
       const found = await api.findUserByCode(code);
+      if (seq !== formSeq.current) return; // modal was closed/reopened meanwhile
       if (!found) {
         setSearchError(`"${code}"에 해당하는 유저를 찾을 수 없습니다.`);
       } else if (found.id === currentUser?.id) {
@@ -137,14 +143,14 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
       onClose={onClose}
       maxWidth="lg"
       title="새 팀 생성 (Create Team)"
-      description="팀 이름과 역할을 설정하고, 유저 코드로 팀원을 초대하세요. 프로젝트는 팀 생성 후 연결할 수 있습니다."
+      description="해커톤, 공모전, 경진대회, 수업 등 활동마다 팀을 만들고 유저 코드로 팀원을 초대하세요. 프로젝트는 팀 생성 후 연결할 수 있습니다."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Team Name + Color */}
         <div className="space-y-4">
           <Input
             label="팀 이름 (Team Name)"
-            placeholder="예: Core Frontend Team, AI Research Squad"
+            placeholder="예: 밤샘코딩, 캡스톤 7조"
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={TEAM_LIMITS.NAME_MAX}
@@ -199,8 +205,8 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
 
         {/* Description */}
         <Textarea
-          label="팀 역할 및 주요 업무 분야 (Responsibilities)"
-          placeholder="예: React/Electron 기반 클라이언트 런타임 및 개발자 UI/UX 컴포넌트 개발"
+          label="팀 소개 (어떤 대회·활동인지)"
+          placeholder="예: 2026 대학생 SW 해커톤 참가팀. 48시간 안에 캠퍼스 생활 문제를 해결하는 앱을 만듭니다."
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           maxLength={TEAM_LIMITS.DESCRIPTION_MAX}

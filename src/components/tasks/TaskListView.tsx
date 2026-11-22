@@ -4,6 +4,7 @@ import { Task } from '../../types';
 import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { formatDate } from '../../utils/formatters';
+import { isOverdue as isTaskOverdue } from '../../utils/dates';
 
 export interface TaskListViewProps {
   tasks: Task[];
@@ -36,8 +37,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({ tasks, onSelectTask 
 
       {/* Rows */}
       {tasks.map((task) => {
-        const isOverdue =
-          task.dueDate && task.status !== 'DONE' && new Date(task.dueDate) < new Date('2026-11-18');
+        const overdue = isTaskOverdue(task);
 
         return (
           <div
@@ -58,7 +58,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({ tasks, onSelectTask 
 
                 {task.githubIssue && (
                   <span
-                    className="text-[10px] font-mono text-text-muted flex items-center gap-1 bg-surface-hover px-1.5 py-0.2 rounded border border-border shrink-0"
+                    className="text-[10px] font-mono text-text-muted flex items-center gap-1 bg-surface-hover px-1.5 py-px rounded border border-border shrink-0"
                     title={`GitHub Issue #${task.githubIssue.number}`}
                   >
                     <GitBranch className="h-2.5 w-2.5" />
@@ -93,8 +93,8 @@ export const TaskListView: React.FC<TaskListViewProps> = ({ tasks, onSelectTask 
 
               <div className="w-20 text-center font-mono text-xs text-text-secondary">
                 {task.dueDate ? (
-                  <span className={isOverdue ? 'text-red-500 font-semibold flex items-center justify-center gap-1' : ''}>
-                    {isOverdue && <AlertCircle className="h-3 w-3" />}
+                  <span className={overdue ? 'text-red-500 font-semibold flex items-center justify-center gap-1' : ''}>
+                    {overdue && <AlertCircle className="h-3 w-3" />}
                     {formatDate(task.dueDate, 'MM.dd')}
                   </span>
                 ) : (

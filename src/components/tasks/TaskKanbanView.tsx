@@ -4,6 +4,7 @@ import { Task, TaskStatus } from '../../types';
 import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { formatDate } from '../../utils/formatters';
+import { isOverdue as isTaskOverdue } from '../../utils/dates';
 import { useTaskStore } from '../../store/useTaskStore';
 import { useUIStore } from '../../store/useUIStore';
 
@@ -54,7 +55,7 @@ export const TaskKanbanView: React.FC<TaskKanbanViewProps> = ({ tasks, onSelectT
                 <span className="text-xs font-mono font-bold text-text-primary tracking-tight">
                   {col.label}
                 </span>
-                <span className="text-[10px] font-mono text-text-muted bg-surface border border-border px-1.5 py-0.2 rounded-full">
+                <span className="text-[10px] font-mono text-text-muted bg-surface border border-border px-1.5 py-px rounded-full">
                   {colTasks.length}
                 </span>
               </div>
@@ -62,7 +63,7 @@ export const TaskKanbanView: React.FC<TaskKanbanViewProps> = ({ tasks, onSelectT
               <button
                 onClick={() => setCreateTaskModalOpen(true)}
                 className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-surface-hover"
-                title="이 상태로 새 업무 추가"
+                title="새 업무 추가" aria-label="새 업무 추가"
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
@@ -76,10 +77,7 @@ export const TaskKanbanView: React.FC<TaskKanbanViewProps> = ({ tasks, onSelectT
                 </div>
               ) : (
                 colTasks.map((task) => {
-                  const isOverdue =
-                    task.dueDate &&
-                    task.status !== 'DONE' &&
-                    new Date(task.dueDate) < new Date('2026-11-18');
+                  const overdue = isTaskOverdue(task);
 
                   return (
                     <div
@@ -89,7 +87,7 @@ export const TaskKanbanView: React.FC<TaskKanbanViewProps> = ({ tasks, onSelectT
                       onClick={() => onSelectTask(task.id)}
                       className="p-3 bg-surface border border-border rounded-lg shadow-subtle hover:border-primary/50 hover:shadow-card cursor-pointer transition-all space-y-2 group"
                     >
-                      {/* Top Issue Key & Priority */}
+                      {/* Top: priority */}
                       <div className="flex items-center justify-between">
                         <Badge priority={task.priority} />
                       </div>
@@ -122,10 +120,10 @@ export const TaskKanbanView: React.FC<TaskKanbanViewProps> = ({ tasks, onSelectT
                           {task.dueDate && (
                             <span
                               className={`font-mono text-[10px] ${
-                                isOverdue ? 'text-red-500 font-semibold flex items-center gap-0.5' : ''
+                                overdue ? 'text-red-500 font-semibold flex items-center gap-0.5' : ''
                               }`}
                             >
-                              {isOverdue && <AlertCircle className="h-2.5 w-2.5" />}
+                              {overdue && <AlertCircle className="h-2.5 w-2.5" />}
                               {formatDate(task.dueDate, 'MM.dd')}
                             </span>
                           )}

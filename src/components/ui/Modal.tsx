@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
@@ -21,6 +21,8 @@ export const Modal: React.FC<ModalProps> = ({
   maxWidth = 'md',
   className,
 }) => {
+  const titleId = useId();
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -50,12 +52,15 @@ export const Modal: React.FC<ModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity animate-fade-in"
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity animate-fade-in"
         onClick={onClose}
       />
 
       {/* Dialog Body */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
         className={cn(
           'relative w-full rounded-xl border border-border bg-surface shadow-modal transition-all animate-scale-in flex flex-col max-h-[90vh]',
           maxWidths[maxWidth],
@@ -65,13 +70,15 @@ export const Modal: React.FC<ModalProps> = ({
         {/* Header */}
         <div className="flex items-start justify-between border-b border-border/80 px-5 py-4">
           <div>
-            {title && <h3 className="text-base font-semibold text-text-primary leading-tight">{title}</h3>}
+            {title && <h3 id={titleId} className="text-base font-semibold text-text-primary leading-tight">{title}</h3>}
             {description && (
               <p className="mt-1 text-xs text-text-secondary">{description}</p>
             )}
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="닫기"
             className="rounded-md p-1 text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
           >
             <X className="h-4 w-4" />

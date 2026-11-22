@@ -34,17 +34,29 @@ export const CommandPalette: React.FC = () => {
   // Global keydown listener for Ctrl+K
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      // e.code = physical key: with the Korean layout on, e.key is 'ㅋ'/'ㅊ' instead of 'k'/'c'
+      if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyK' || e.key.toLowerCase() === 'k')) {
         e.preventDefault();
         setCommandPaletteOpen(!isCommandPaletteOpen);
       }
-      if (e.key === 'c' && !isCommandPaletteOpen) {
-        // Linear shortcut 'c' to create task if not typing in an input
-        const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-        if (tag !== 'input' && tag !== 'textarea') {
-          e.preventDefault();
-          setCreateTaskModalOpen(true);
-        }
+      if ((e.code === 'KeyC' || e.key.toLowerCase() === 'c') && !isCommandPaletteOpen) {
+        // Linear-style 'c' = new task. Only a bare 'c' (Ctrl/Cmd+C is copy!), never while typing,
+        // and never on top of another dialog.
+        if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing || e.repeat) return;
+        const el = e.target as HTMLElement | null;
+        const tag = el?.tagName?.toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || el?.isContentEditable) return;
+        const ui = useUIStore.getState();
+        const dialogOpen =
+          ui.isCreateTaskModalOpen ||
+          ui.isCreateProjectModalOpen ||
+          ui.isCreateTeamModalOpen ||
+          ui.isRecordMeetingModalOpen ||
+          ui.selectedTaskIdForDetail !== null ||
+          document.querySelector('[aria-modal="true"]') !== null;
+        if (dialogOpen) return;
+        e.preventDefault();
+        setCreateTaskModalOpen(true);
       }
     };
 
@@ -61,6 +73,14 @@ export const CommandPalette: React.FC = () => {
       return unsub;
     }
   }, [setCommandPaletteOpen]);
+
+  // Start fresh every time it opens (no leftover search from last time)
+  useEffect(() => {
+    if (isCommandPaletteOpen) {
+      setQuery('');
+      setSelectedIndex(0);
+    }
+  }, [isCommandPaletteOpen]);
 
   if (!isCommandPaletteOpen) return null;
 
@@ -188,21 +208,24 @@ export const CommandPalette: React.FC = () => {
 
   const allItems = [...baseCommands, ...projectCommands];
 
-  const filteredItems = allItems.filter((item) =>
-    item.label.toLowerCase().includes(query.toLowerCase())
-  );
+  const q = query.trim().toLowerCase();
+  const filteredItems = allItems.filter((item) => item.label.toLowerCase().includes(q));
+  // The list can shrink while typing; never point past its end
+  const activeIndex = Math.min(selectedIndex, Math.max(filteredItems.length - 1, 0));
 
   const handleKeyDownInPalette = (e: React.KeyboardEvent) => {
+    // Korean IME: keys while composing (incl. the Enter that commits a syllable) belong to the IME
+    if (e.nativeEvent.isComposing) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex((prev) => (prev + 1) % (filteredItems.length || 1));
+      setSelectedIndex((activeIndex + 1) % (filteredItems.length || 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setSelectedIndex((prev) => (prev - 1 + filteredItems.length) % (filteredItems.length || 1));
+      setSelectedIndex((activeIndex - 1 + filteredItems.length) % (filteredItems.length || 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (filteredItems[selectedIndex]) {
-        filteredItems[selectedIndex].action();
+      if (filteredItems[activeIndex]) {
+        filteredItems[activeIndex].action();
       }
     } else if (e.key === 'Escape') {
       setCommandPaletteOpen(false);
@@ -212,7 +235,7 @@ export const CommandPalette: React.FC = () => {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 p-4">
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
         onClick={() => setCommandPaletteOpen(false)}
       />
 
@@ -245,7 +268,7 @@ export const CommandPalette: React.FC = () => {
             </div>
           ) : (
             filteredItems.map((item, index) => {
-              const isSelected = index === selectedIndex;
+              const isSelected = index === activeIndex;
               return (
                 <div
                   key={item.id}
