@@ -57,7 +57,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         workspaces,
         currentWorkspace: workspaces[0] || null,
         projects,
-        currentProjectId: projects[0]?.id || null,
+        // Start outside any project (the app opens on the dashboard)
+        currentProjectId: null,
         isLoading: false,
       });
     } catch (err) {
@@ -66,15 +67,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  // currentProjectId means "inside this project". Leaving project-detail clears it, so e.g. the
+  // all-issues page reached from the dashboard shows every project instead of the last one viewed.
   setCurrentView: (view: AppView, contextId?: string) => {
-    if (view === 'meeting-detail' && contextId) {
-      set({ currentView: view, selectedMeetingId: contextId });
-    } else if (view === 'project-detail' && contextId) {
-      set({ currentView: view, currentProjectId: contextId });
+    if (view === 'project-detail') {
+      set({ currentView: view, ...(contextId ? { currentProjectId: contextId } : {}) });
+    } else if (view === 'meeting-detail' && contextId) {
+      set({ currentView: view, selectedMeetingId: contextId, currentProjectId: null });
     } else if (view === 'team-detail' && contextId) {
-      set({ currentView: view, selectedTeamId: contextId });
+      set({ currentView: view, selectedTeamId: contextId, currentProjectId: null });
     } else {
-      set({ currentView: view });
+      set({ currentView: view, currentProjectId: null });
     }
   },
 

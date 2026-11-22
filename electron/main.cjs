@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut, Notification, shell } = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { createAuth } = require('./auth.cjs');
@@ -115,18 +116,47 @@ async function launchIntellij(projectPath) {
 
 // ---- Renderer trust: only our own app page may use privileged IPC or stay in the main window ----
 const DEV_ORIGIN = 'http://localhost:5173';
+// Release: exactly our bundled index.html. Any other file: URL (e.g. an .html dropped on the window) is foreign.
+const APP_INDEX_URL = pathToFileURL(path.join(__dirname, '../dist/index.html'));
 function isAppUrl(rawUrl) {
   try {
     const u = new URL(rawUrl);
-    return isDev ? u.origin === DEV_ORIGIN : u.protocol === 'file:';
+    if (isDev) return u.origin === DEV_ORIGIN;
+    return u.protocol === 'file:' && u.pathname === APP_INDEX_URL.pathname;
   } catch {
     return false;
   }
 }
-function isTrustedSender(event) {
-  const frame = event.senderFrame;
-  return Boolean(mainWindow && event.sender === mainWindow.webContents && frame && isAppUrl(frame.url));
+function isWebUrl(rawUrl) {
+  try {
+    const { protocol } = new URL(rawUrl);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
+// openExternal rejects when no handler exists (e.g. VS Code not installed); never leave that unhandled
+function openExternalSafe(url) {
+  return shell.openExternal(url).then(
+    () => true,
+    (err) => {
+      console.error('[shell] openExternal failed:', err.message);
+      return false;
+    }
+  );
+}
+
+// Privileged IPC: only from our app page, in the main frame of the main window (not an iframe)
+function isTrustedSender(event) {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return false;
+  const frame = event.senderFrame;
+  return Boolean(frame && frame === mainWindow.webContents.mainFrame && isAppUrl(frame.url));
+}
+
+// ---- Single instance: a second launch (e.g. by a flowmate:// link) hands over to the running one ----
+// Must come first so a second process never touches the protocol registry, userData or windows.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) app.quit();
 
 // ---- Auth (token lives only in this process, see auth.cjs) ----
 const auth = createAuth({
@@ -148,7 +178,9 @@ function deliverAuthResult(result) {
 // ---- flowmate:// deep link (GitHub OAuth callback) ----
 const PROTOCOL = 'flowmate';
 
-if (process.defaultApp && process.argv.length >= 2) {
+if (!gotSingleInstanceLock) {
+  // second process: quitting, register nothing
+} else if (process.defaultApp && process.argv.length >= 2) {
   // Dev run (electron electron/main.cjs): the OS must launch electron with our script path
   app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
 } else {
@@ -164,13 +196,16 @@ const isOAuthCallback = (a) =>
   (a === OAUTH_CALLBACK_PREFIX || a.startsWith(`${OAUTH_CALLBACK_PREFIX}?`) || a.startsWith(`${OAUTH_CALLBACK_PREFIX}/?`));
 const findDeepLink = (argv) => argv.find(isOAuthCallback);
 
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
 function handleDeepLink(url) {
   if (!isOAuthCallback(url)) return;
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-  }
+  focusMainWindow();
   // The renderer only ever learns ok/error, never the token
   auth
     .handleCallback(url)
@@ -178,12 +213,12 @@ function handleDeepLink(url) {
     .catch((err) => console.error('[auth] callback failed:', err));
 }
 
-// Windows/Linux: a second launch (triggered by the flowmate:// link) passes the URL to the running instance
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-} else {
-  app.on('second-instance', (_event, argv) => handleDeepLink(findDeepLink(argv)));
-}
+// Windows/Linux: a second launch passes its argv (maybe a flowmate:// link) to this instance.
+// Always bring the window forward, link or not (e.g. the user just double-clicked the icon again).
+app.on('second-instance', (_event, argv) => {
+  focusMainWindow();
+  handleDeepLink(findDeepLink(argv));
+});
 // macOS
 app.on('open-url', (event, url) => {
   event.preventDefault();
@@ -211,19 +246,20 @@ function createWindow() {
 
   // Open external links (GitHub issues, documentation) in OS default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http:') || url.startsWith('https:')) {
-      shell.openExternal(url);
-    }
+    if (isWebUrl(url)) openExternalSafe(url);
     // Never open other schemes (file:, javascript:, custom protocols) inside an Electron window
     return { action: 'deny' };
   });
 
-  // The main window must only ever show the app itself; send web links to the system browser
-  mainWindow.webContents.on('will-navigate', (event, url) => {
+  // The main window must only ever show the app itself (this also blocks files dropped on the window);
+  // web links go to the system browser. Redirects are checked too.
+  const keepInApp = (event, url) => {
     if (isAppUrl(url)) return;
     event.preventDefault();
-    if (url.startsWith('http:') || url.startsWith('https:')) shell.openExternal(url);
-  });
+    if (isWebUrl(url)) openExternalSafe(url);
+  };
+  mainWindow.webContents.on('will-navigate', keepInApp);
+  mainWindow.webContents.on('will-redirect', keepInApp);
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
@@ -292,8 +328,10 @@ function createTray() {
 }
 
 app.whenReady().then(async () => {
-  // Restore the encrypted session and install the auth header hook before the app makes any request
-  await auth.ready;
+  if (!gotSingleInstanceLock) return;
+  // Restore the encrypted session and install the auth header hook before the app makes any request.
+  // auth.ready never rejects (failures degrade to "logged out"), but never let it keep the window from opening.
+  await auth.ready.catch((err) => console.error('[auth] init failed:', err));
   createWindow();
   createTray();
 
@@ -312,9 +350,16 @@ app.whenReady().then(async () => {
   }
 
   // IPC Handlers
-  ipcMain.on('show-notification', (event, { title, body }) => {
-    if (Notification.isSupported()) {
-      new Notification({ title: title || 'FlowMate', body: body || '' }).show();
+  ipcMain.on('show-notification', (event, payload) => {
+    if (!isTrustedSender(event) || !Notification.isSupported()) return;
+    // The payload comes from the renderer: never destructure or trust it blindly
+    const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+    const title = text(payload && payload.title, 120) || 'FlowMate';
+    const body = text(payload && payload.body, 500);
+    try {
+      new Notification({ title, body }).show();
+    } catch (err) {
+      console.error('[notification] failed:', err.message);
     }
   });
 
@@ -326,7 +371,7 @@ app.whenReady().then(async () => {
     try {
       const parsed = new URL(url);
       if (parsed.protocol === 'vscode:' && parsed.host === 'file') {
-        shell.openExternal(url);
+        openExternalSafe(url);
       }
     } catch {
       // malformed URL: ignore
@@ -361,11 +406,13 @@ app.whenReady().then(async () => {
     await auth.clear();
   });
 
-  ipcMain.on('window-minimize', () => {
+  ipcMain.on('window-minimize', (event) => {
+    if (!isTrustedSender(event)) return;
     if (mainWindow) mainWindow.minimize();
   });
 
-  ipcMain.on('window-maximize', () => {
+  ipcMain.on('window-maximize', (event) => {
+    if (!isTrustedSender(event)) return;
     if (mainWindow) {
       if (mainWindow.isMaximized()) {
         mainWindow.unmaximize();
@@ -375,7 +422,8 @@ app.whenReady().then(async () => {
     }
   });
 
-  ipcMain.on('window-close', () => {
+  ipcMain.on('window-close', (event) => {
+    if (!isTrustedSender(event)) return;
     if (mainWindow) {
       mainWindow.close();
     }

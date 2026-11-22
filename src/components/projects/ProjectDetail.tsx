@@ -160,7 +160,8 @@ export const ProjectDetail: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <ProjectIdeButtons projectId={project.id} />
+          {/* key: this view stays mounted when switching projects; remount so the saved path is re-read */}
+          <ProjectIdeButtons key={project.id} projectId={project.id} />
           {project.githubRepo && (
             <a
               href={project.githubRepo.htmlUrl}
