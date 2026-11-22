@@ -5,7 +5,9 @@ const { spawn } = require('child_process');
 
 let mainWindow = null;
 let tray = null;
-const isDev = process.env.NODE_ENV !== 'production' || !app.isPackaged;
+// Packaged = release. (NODE_ENV is usually unset in a packaged app, so it must not decide this:
+// the release build would otherwise load localhost:5173 and use the dev trust rules.)
+const isDev = !app.isPackaged;
 
 // ---- IntelliJ IDEA launcher ----
 // Runs `file args...` detached, no shell. Resolves { ok } once the process spawned or failed to.
