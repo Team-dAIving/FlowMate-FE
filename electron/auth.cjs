@@ -1,14 +1,38 @@
 // Main-process auth: the JWT never reaches the renderer.
-// - The OAuth callback (flowmate://oauth/callback?accessToken=...) is parsed here.
+// - The OAuth callback (flowmate://oauth/callback?accessToken=... or ?code=...) is parsed here.
 // - The token is kept in memory and persisted encrypted with safeStorage (OS key store).
 // - "Authorization: Bearer" is attached here, only to requests for the API origin.
 // So an XSS in the renderer can at worst make requests while the app is open; it can't read the token.
-const { app, safeStorage, session, shell } = require('electron');
+const { app, net, safeStorage, session, shell } = require('electron');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
 // header.payload.signature, base64url
 const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+// One-time login code (if the backend uses the code flow): URL-safe, bounded length
+const CODE_SHAPE = /^[A-Za-z0-9._~-]{8,512}$/;
+
+/** GitHub login entry point. `client` tells the backend where to send the user back. */
+function loginUrl(base, client, state) {
+  const q = new URLSearchParams({ client, state });
+  return `${base}/oauth2/authorization/github?${q.toString()}`;
+}
+
+/** POST /api/auth/token { code, client } -> { accessToken, onboardingRequired } (one-time code flow). */
+async function exchangeCode(base, code, client) {
+  const res = await net.fetch(`${base}/api/auth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ code, client }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = await res.json();
+  if (!body || typeof body.accessToken !== 'string' || !JWT_SHAPE.test(body.accessToken)) {
+    throw new Error('response has no valid accessToken');
+  }
+  return { accessToken: body.accessToken, onboardingRequired: body.onboardingRequired === true };
+}
 // The GitHub login must finish within this window after the user clicks login in this app
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const TOKEN_FILE = 'auth-token.bin';
@@ -62,6 +86,7 @@ function createAuth({ isDev, appRoot, getMainWebContents }) {
   let api = null; // { base, origin }
   let token = null;
   let pendingLoginAt = 0;
+  let pendingState = null;
   const tokenPath = () => path.join(app.getPath('userData'), TOKEN_FILE);
 
   const removeTokenFile = () => {
@@ -162,10 +187,14 @@ function createAuth({ isDev, appRoot, getMainWebContents }) {
       await ready;
       if (!api) return { ok: false, message: 'API 서버 주소(VITE_API_BASE_URL)가 설정되지 않았습니다.' };
       pendingLoginAt = Date.now();
+      // client: where the backend should send the user back (desktop -> flowmate://oauth/callback)
+      // state: random, echoed back by the backend; proves the callback belongs to this login
+      pendingState = crypto.randomBytes(24).toString('base64url');
       try {
-        await shell.openExternal(`${api.base}/oauth2/authorization/github`);
+        await shell.openExternal(loginUrl(api.base, 'desktop', pendingState));
       } catch (err) {
         pendingLoginAt = 0;
+        pendingState = null;
         console.error('[auth] could not open the browser:', err.message);
         return { ok: false, message: '브라우저를 열지 못했습니다. 기본 브라우저 설정을 확인해주세요.' };
       }
@@ -188,25 +217,48 @@ function createAuth({ isDev, appRoot, getMainWebContents }) {
       } catch {
         return null; // malformed: ignore without consuming, so it can't cancel the real callback
       }
+      // Once the backend echoes `state`, a mismatch means the link isn't from this login
+      const state = params.get('state');
+      if (state !== null && state !== pendingState) {
+        console.warn('[auth] ignored an OAuth callback with a foreign state');
+        return null;
+      }
       const error = params.get('error');
       const accessToken = params.get('accessToken') || '';
-      if (!error && !JWT_SHAPE.test(accessToken)) {
-        console.warn('[auth] ignored an OAuth callback without a valid token');
+      const code = params.get('code') || '';
+      if (!error && !JWT_SHAPE.test(accessToken) && !CODE_SHAPE.test(code)) {
+        console.warn('[auth] ignored an OAuth callback without a valid token or code');
         return null; // same: a junk link must not cancel the login in progress
       }
       // A real outcome (success or the backend's error): consume the login so it can't be replayed
       pendingLoginAt = 0;
+      pendingState = null;
       if (error) return { ok: false, error: error.slice(0, 100) };
 
-      token = accessToken;
+      let jwt = accessToken;
+      let onboardingRequired = params.get('onboardingRequired') === 'true';
+      if (!JWT_SHAPE.test(jwt)) {
+        // One-time code flow: trade it for the JWT here, so the token still never reaches the renderer
+        try {
+          const exchanged = await exchangeCode(api.base, code, 'desktop');
+          jwt = exchanged.accessToken;
+          onboardingRequired = exchanged.onboardingRequired;
+        } catch (err) {
+          console.error('[auth] code exchange failed:', err.message);
+          return { ok: false, error: 'code_exchange_failed' };
+        }
+      }
+
+      token = jwt;
       await persist();
-      return { ok: true, onboardingRequired: params.get('onboardingRequired') === 'true' };
+      return { ok: true, onboardingRequired };
     },
 
     clear: async () => {
       await ready;
       token = null;
       pendingLoginAt = 0;
+      pendingState = null;
       await persist();
     },
   };

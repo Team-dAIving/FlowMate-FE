@@ -1,10 +1,13 @@
 import { create } from 'zustand';
 import { authApi } from '../services/authApi';
-import { ApiError, setUnauthorizedHandler } from '../services/http';
+import { ApiError, setUnauthorizedHandler, setWebTokenProvider } from '../services/http';
+import { consumeWebCallback, startWebLogin, webToken } from '../services/webAuth';
 import type { AuthResult } from '../types/electron';
 
-// The JWT lives only in the Electron main process (encrypted with safeStorage, attached to API requests
-// there). This store only knows whether a session exists and whether onboarding is pending.
+// Login works in both the desktop app and the browser:
+// - Desktop: the JWT lives only in the Electron main process (safeStorage, header attached there).
+// - Web: services/webAuth.ts keeps it for the tab (sessionStorage) and http.ts attaches it.
+// This store only knows whether a session exists and whether onboarding is pending.
 
 export type AuthStatus = 'checking' | 'loggedOut' | 'onboarding' | 'ready';
 
@@ -12,7 +15,7 @@ interface AuthState {
   status: AuthStatus;
   loginError: string | null;
   isLoggingIn: boolean;
-  /** Restores the session on startup. Call once. */
+  /** Restores the session on startup (and finishes a web login redirect). Call once. */
   init: () => Promise<void>;
   startLogin: () => Promise<void>;
   submitNickname: (nickname: string) => Promise<void>;
@@ -30,14 +33,19 @@ for (const key of ['flowmate_access_token', 'flowmate_needs_nickname', 'flowmate
 }
 
 const LOGIN_ERROR = 'GitHub 로그인에 실패했습니다. 다시 시도해주세요.';
-const DESKTOP_ONLY = '로그인은 FlowMate 데스크톱 앱에서만 가능합니다.';
+
+// Web requests carry the tab's token; on desktop http.ts ignores this provider
+setWebTokenProvider(() => webToken.get());
 
 export const useAuthStore = create<AuthState>((set, get) => {
   const electronAuth = () => window.electronAPI?.auth;
+  let initPromise: Promise<void> | null = null;
 
   const clearLocal = async () => {
+    const ea = electronAuth();
     try {
-      await electronAuth()?.clear();
+      if (ea) await ea.clear();
+      else webToken.clear();
     } catch (err) {
       console.error('Failed to clear the session:', err);
     }
@@ -67,7 +75,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     if (get().status !== 'loggedOut') void clearLocal();
   });
 
-  // Login results come from the main process after the browser round trip (ok/error only, no token)
+  // Desktop: login results come from the main process after the browser round trip (ok/error only, no token)
   electronAuth()?.onResult((result: AuthResult) => {
     if (result.ok) {
       void loadMe();
@@ -76,34 +84,60 @@ export const useAuthStore = create<AuthState>((set, get) => {
     }
   });
 
+  /** Web: this page load may be the OAuth redirect back from the backend. */
+  const finishWebRedirect = async () => {
+    const cb = consumeWebCallback();
+    if (cb.kind === 'error') {
+      set({ loginError: LOGIN_ERROR });
+    } else if (cb.kind === 'token') {
+      webToken.set(cb.accessToken);
+    } else if (cb.kind === 'code') {
+      try {
+        const { accessToken } = await authApi.exchangeCode(cb.code, 'web');
+        webToken.set(accessToken);
+      } catch (err) {
+        console.error('Code exchange failed:', err);
+        set({ loginError: LOGIN_ERROR });
+      }
+    }
+  };
+
   return {
     status: 'checking',
     loginError: null,
     isLoggingIn: false,
 
-    init: async () => {
-      const ea = electronAuth();
-      if (!ea) {
-        set({ status: 'loggedOut', loginError: DESKTOP_ONLY });
-        return;
+    init: () => {
+      // React StrictMode runs effects twice in dev; the OAuth redirect must only be consumed once
+      if (!initPromise) {
+        initPromise = (async () => {
+          try {
+            const ea = electronAuth();
+            if (ea) {
+              const { loggedIn } = await ea.getState();
+              if (loggedIn) await loadMe();
+              else set({ status: 'loggedOut' });
+            } else {
+              await finishWebRedirect();
+              if (webToken.get()) await loadMe();
+              else set({ status: 'loggedOut' });
+            }
+          } catch (err) {
+            console.error('Failed to restore the session:', err);
+            set({ status: 'loggedOut' });
+          }
+        })();
       }
-      try {
-        const { loggedIn } = await ea.getState();
-        if (loggedIn) await loadMe();
-        else set({ status: 'loggedOut' });
-      } catch (err) {
-        console.error('Failed to restore the session:', err);
-        set({ status: 'loggedOut' });
-      }
+      return initPromise;
     },
 
     startLogin: async () => {
+      set({ isLoggingIn: true, loginError: null });
       const ea = electronAuth();
       if (!ea) {
-        set({ loginError: DESKTOP_ONLY });
+        startWebLogin(); // navigates away to GitHub
         return;
       }
-      set({ isLoggingIn: true, loginError: null });
       try {
         const res = await ea.startLogin();
         if (!res.ok) set({ isLoggingIn: false, loginError: res.message || LOGIN_ERROR });

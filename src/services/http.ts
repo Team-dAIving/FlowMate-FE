@@ -14,8 +14,14 @@ export class ApiError extends Error {
   }
 }
 
-// Auth: the JWT goes out as "Authorization: Bearer <token>", but it is attached by the Electron main
-// process (electron/auth.cjs) for requests to the API origin. This code never sees the token.
+// Auth: the JWT goes out as "Authorization: Bearer <token>".
+// - Desktop: attached by the Electron main process (electron/auth.cjs); this code never sees the token.
+// - Web: there is no main process, so the web session (services/webAuth.ts) provides it here.
+let webTokenProvider: () => string | null = () => null;
+export function setWebTokenProvider(provider: () => string | null) {
+  webTokenProvider = provider;
+}
+const isDesktop = () => Boolean(window.electronAPI?.isElectron);
 
 // Called when the server rejects the session (401), so the app can drop it and show the login screen.
 let unauthorizedHandler: () => void = () => {};
@@ -37,12 +43,14 @@ interface HttpOptions extends Omit<RequestInit, 'body'> {
 }
 
 export async function http<T>(path: string, { json, headers, ...init }: HttpOptions = {}): Promise<T> {
+  const webToken = isDesktop() ? null : webTokenProvider();
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
       Accept: 'application/json',
       ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...headers,
+      ...(webToken ? { Authorization: `Bearer ${webToken}` } : {}),
     },
     body: json !== undefined ? JSON.stringify(json) : undefined,
   });
