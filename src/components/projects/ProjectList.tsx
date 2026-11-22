@@ -12,6 +12,8 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { formatDate } from '../../utils/formatters';
+import { isFeatureAvailable } from '../../services/features';
+import { NotConnected } from '../ui/NotConnected';
 
 export const ProjectList: React.FC = () => {
   const { projects, setCurrentView } = useWorkspaceStore();
@@ -21,6 +23,7 @@ export const ProjectList: React.FC = () => {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
+      {!isFeatureAvailable('projectWrite') && <NotConnected feature="프로젝트 생성·수정" />}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>

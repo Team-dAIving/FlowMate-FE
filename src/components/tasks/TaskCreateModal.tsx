@@ -7,6 +7,8 @@ import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { getMyProjects, getProjectMemberUsers } from '../../utils/projectMembers';
 import { TaskPriority } from '../../types';
 import { daysFromTodayISO } from '../../utils/dates';
+import { isFeatureAvailable } from '../../services/features';
+import { NotConnected } from '../ui/NotConnected';
 
 export interface TaskCreateModalProps {
   isOpen: boolean;
@@ -88,6 +90,15 @@ export const TaskCreateModal: React.FC<TaskCreateModalProps> = ({ isOpen, onClos
       setIsLoading(false);
     }
   };
+
+  // Deployed service without this backend API yet: say so instead of a form that can only fail
+  if (!isFeatureAvailable('taskWrite')) {
+    return (
+      <Modal isOpen={isOpen} onClose={onClose} maxWidth="md" title="새 업무 등록 (Create Task)">
+        <NotConnected feature="업무 등록" />
+      </Modal>
+    );
+  }
 
   return (
     <Modal

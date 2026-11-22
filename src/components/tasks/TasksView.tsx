@@ -17,6 +17,8 @@ import { Button } from '../ui/Button';
 import { getCollaboratorUsers, getProjectMemberUsers } from '../../utils/projectMembers';
 import { Task, TaskStatus, TaskPriority } from '../../types';
 import { groupTasksByProject } from '../../utils/projectTeams';
+import { isFeatureAvailable } from '../../services/features';
+import { NotConnected } from '../ui/NotConnected';
 
 export const TasksView: React.FC = () => {
   const {
@@ -73,6 +75,7 @@ export const TasksView: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-5">
+      {!isFeatureAvailable('taskWrite') && <NotConnected feature="업무 등록·상태 변경" />}
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>

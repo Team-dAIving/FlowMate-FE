@@ -10,6 +10,8 @@ import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTeamStore } from '../../store/useTeamStore';
 import { ProjectPosition, ProjectRepository, ProjectType, TeamMember, USER_CODE_PATTERN, User } from '../../types';
 import { api } from '../../services/api';
+import { isFeatureAvailable } from '../../services/features';
+import { NotConnected } from '../ui/NotConnected';
 import { POSITIONS, positionColor, projectTechStack } from '../../utils/positions';
 import { REPOS_MAX, isValidGitHubOwner, makeRepository, parseRepoInput } from '../../utils/github';
 
@@ -291,6 +293,15 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
 
   const selectClass =
     'w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary';
+
+  // Deployed service without this backend API yet: say so instead of a form that can only fail
+  if (!isFeatureAvailable('projectWrite')) {
+    return (
+      <Modal isOpen={isOpen} onClose={onClose} maxWidth="md" title="새 프로젝트 생성 (Create Project)">
+        <NotConnected feature="프로젝트 생성" />
+      </Modal>
+    );
+  }
 
   return (
     <Modal

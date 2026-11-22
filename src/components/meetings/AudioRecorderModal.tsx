@@ -8,6 +8,8 @@ import { useMeetingStore } from '../../store/useMeetingStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { formatDuration } from '../../utils/formatters';
 import { todayISO } from '../../utils/dates';
+import { isFeatureAvailable } from '../../services/features';
+import { NotConnected } from '../ui/NotConnected';
 
 export interface AudioRecorderModalProps {
   isOpen: boolean;
@@ -157,6 +159,15 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
     setDuration(0);
     onClose();
   };
+
+  // Deployed service without this backend API yet: say so instead of a form that can only fail
+  if (!isFeatureAvailable('meetings')) {
+    return (
+      <Modal isOpen={isOpen} onClose={onClose} maxWidth="md" title="팀 회의 녹음 & AI 분석">
+        <NotConnected feature="회의 녹음·AI 분석" />
+      </Modal>
+    );
+  }
 
   return (
     <Modal

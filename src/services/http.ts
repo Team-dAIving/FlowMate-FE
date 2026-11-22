@@ -42,18 +42,35 @@ interface HttpOptions extends Omit<RequestInit, 'body'> {
   json?: unknown;
 }
 
-export async function http<T>(path: string, { json, headers, ...init }: HttpOptions = {}): Promise<T> {
+const REQUEST_TIMEOUT_MS = 15000;
+
+export async function http<T>(path: string, { json, headers, signal, ...init }: HttpOptions = {}): Promise<T> {
   const webToken = isDesktop() ? null : webTokenProvider();
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      Accept: 'application/json',
-      ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...headers,
-      ...(webToken ? { Authorization: `Bearer ${webToken}` } : {}),
-    },
-    body: json !== undefined ? JSON.stringify(json) : undefined,
-  });
+  // A server that accepts the connection but never answers would otherwise hang the app forever
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      headers: {
+        Accept: 'application/json',
+        ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...headers,
+        ...(webToken ? { Authorization: `Bearer ${webToken}` } : {}),
+      },
+      body: json !== undefined ? JSON.stringify(json) : undefined,
+    });
+  } catch (err) {
+    // Network down, CORS refused, DNS, timeout: one clear message instead of "TypeError: Failed to fetch"
+    if (signal?.aborted) throw err; // the caller cancelled on purpose
+    const timedOut = timeout.aborted;
+    throw new ApiError(
+      0,
+      timedOut ? '서버 응답이 너무 늦습니다. 잠시 후 다시 시도해주세요.' : '서버에 연결할 수 없습니다. 네트워크를 확인해주세요.',
+      err
+    );
+  }
 
   const text = await res.text();
   let body: unknown = undefined;
