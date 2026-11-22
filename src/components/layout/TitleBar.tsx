@@ -11,7 +11,6 @@ import {
   Command,
 } from 'lucide-react';
 import { useUIStore } from '../../store/useUIStore';
-import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 
 export const TitleBar: React.FC = () => {
   const {
@@ -24,7 +23,6 @@ export const TitleBar: React.FC = () => {
     setRecordMeetingModalOpen,
   } = useUIStore();
 
-  const { currentWorkspace } = useWorkspaceStore();
   const isElectron = !!window.electronAPI?.isElectron;
 
   const handleMinimize = () => window.electronAPI?.minimizeWindow();
@@ -33,7 +31,7 @@ export const TitleBar: React.FC = () => {
 
   return (
     <header className="h-10 w-full bg-surface border-b border-border flex items-center justify-between px-3 select-none app-drag-region z-40 shrink-0">
-      {/* Left: App Brand & Workspace */}
+      {/* Left: App Brand (personal service: no company/workspace name) */}
       <div className="flex items-center gap-2 app-no-drag">
         <div className="flex items-center gap-1.5 font-semibold text-xs tracking-tight text-text-primary">
           <div className="w-4 h-4 rounded bg-primary flex items-center justify-center text-white font-mono text-[10px] font-bold">
@@ -42,11 +40,6 @@ export const TitleBar: React.FC = () => {
           <span>FlowMate</span>
         </div>
 
-        {currentWorkspace && (
-          <div className="hidden sm:flex items-center gap-1 text-[11px] text-text-secondary pl-2 border-l border-border">
-            <span className="font-medium text-text-primary">{currentWorkspace.name}</span>
-          </div>
-        )}
       </div>
 
       {/* Center: Raycast / Linear style Quick Search (Ctrl+K) */}
@@ -59,7 +52,7 @@ export const TitleBar: React.FC = () => {
             <Search className="h-3 w-3 text-text-muted group-hover:text-text-primary transition-colors" />
             <span className="text-[11px]">검색 또는 명령어 입력...</span>
           </div>
-          <div className="flex items-center gap-0.5 text-[10px] font-mono px-1 py-0.2 rounded bg-surface border border-border/70 text-text-secondary">
+          <div className="flex items-center gap-0.5 text-[10px] font-mono px-1 py-px rounded bg-surface border border-border/70 text-text-secondary">
             <Command className="h-2.5 w-2.5" />
             <span>K</span>
           </div>

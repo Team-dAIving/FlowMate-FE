@@ -24,13 +24,12 @@ export const TeamList: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>
-          <div className="text-xs font-mono text-text-muted">~/workspace/teams</div>
           <h1 className="text-xl font-bold text-text-primary tracking-tight mt-1 flex items-center gap-2">
             <Users2 className="h-5 w-5 text-primary" />
-            <span>팀 관리 (Teams & Squads)</span>
+            <span>내 팀 (Teams)</span>
           </h1>
           <p className="text-xs text-text-secondary mt-0.5">
-            개발 조직의 각 팀과 역할, 담당하고 있는 프로젝트 및 소속 팀원을 유기적으로 관리합니다.
+            해커톤, 공모전, 경진대회, 수업 프로젝트마다 함께하는 팀과 팀원, 진행 중인 프로젝트를 확인합니다.
           </p>
         </div>
 
@@ -55,7 +54,7 @@ export const TeamList: React.FC = () => {
 
       {!error && !isLoading && teams.length === 0 && (
         <div className="p-12 text-center border border-dashed border-border rounded-lg bg-surface/50 text-xs text-text-muted">
-          아직 소속된 팀이 없습니다. 새 팀을 만들고 유저 코드로 팀원을 초대해보세요.
+          아직 참여 중인 팀이 없습니다. 대회나 수업 팀을 만들고 유저 코드로 팀원을 초대해보세요.
         </div>
       )}
 
@@ -84,7 +83,7 @@ export const TeamList: React.FC = () => {
                       style={{ backgroundColor: team.color || '#4F46E5' }}
                     />
                     <span className="text-xs font-mono font-semibold text-text-muted">
-                      {team.memberCount}명 소속
+                      팀원 {team.memberCount}명
                     </span>
                   </div>
                 </div>
@@ -103,7 +102,7 @@ export const TeamList: React.FC = () => {
                 {/* Connected Projects Badges */}
                 <div className="space-y-1 pt-1">
                   <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider block">
-                    담당 프로젝트 ({team.projects?.length || 0})
+                    팀 프로젝트 ({team.projects?.length || 0})
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {(team.projects || []).length === 0 ? (

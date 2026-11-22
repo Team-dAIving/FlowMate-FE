@@ -20,11 +20,15 @@ import { useTeamStore } from '../../store/useTeamStore';
 import { groupTasksByProject, getProjectTeams } from '../../utils/projectTeams';
 import { getProjectLeader } from '../../utils/projectLeader';
 import { ProjectIdeButtons } from '../projects/ProjectIdeButtons';
+import { MeetingStatusBadge } from '../meetings/MeetingStatusBadge';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Avatar } from '../ui/Avatar';
 import { formatDate } from '../../utils/formatters';
+import { isOverdue } from '../../utils/dates';
+import { projectProgress } from '../../utils/progress';
+import { differenceInCalendarDays, parseISO, startOfDay } from 'date-fns';
 
 export const PersonalDashboard: React.FC = () => {
   const { currentUser, projects, setCurrentView } = useWorkspaceStore();
@@ -52,24 +56,32 @@ export const PersonalDashboard: React.FC = () => {
   // My tasks
   const myTasks = tasks.filter((t) => t.assignee?.id === currentUser?.id);
   const myTaskGroups = groupTasksByProject(myTasks, projects);
+
+  // My open tasks across every team, nearest deadline first (students juggle several teams at once)
+  const today = startOfDay(new Date());
+  const upcoming = myTasks
+    .filter((t) => t.status !== 'DONE' && t.dueDate)
+    .map((t) => ({
+      task: t,
+      dDay: differenceInCalendarDays(parseISO(t.dueDate!), today),
+      teamName: getProjectTeams(t.projectId, teams)[0]?.name,
+    }))
+    .sort((a, b) => a.dDay - b.dDay)
+    .slice(0, 5);
   const activeTasks = myTasks.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW');
   const completedTasks = myTasks.filter((t) => t.status === 'DONE');
-  const overdueTasks = myTasks.filter((t) => {
-    if (!t.dueDate || t.status === 'DONE') return false;
-    return new Date(t.dueDate) < new Date('2026-11-18');
-  });
+  const overdueTasks = myTasks.filter(isOverdue);
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       {/* Top Greeting & Quick Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>
-          <div className="text-xs font-mono text-text-muted">~/workspace/dashboard</div>
           <h1 className="text-xl font-bold text-text-primary tracking-tight mt-1">
-            Good evening, {currentUser?.name || 'Developer'}.
+            안녕하세요, {currentUser?.name ? `${currentUser.name}님` : '반가워요'}!
           </h1>
           <p className="text-xs text-text-secondary mt-0.5">
-            오늘 집중할 업무와 다가오는 회의 및 마감일을 확인하세요.
+            참여 중인 팀들의 내 할 일과 다가오는 마감을 한눈에 확인하세요.
           </p>
         </div>
 
@@ -284,13 +296,13 @@ export const PersonalDashboard: React.FC = () => {
                         <span className="truncate">{p.name}</span>
                       </div>
                       <span className="font-mono text-xs font-bold text-text-secondary">
-                        {p.progress}%
+                        {projectProgress(p.id, tasks)}%
                       </span>
                     </div>
                     <div className="w-full bg-border/60 h-1.5 rounded-full overflow-hidden">
                       <div
                         className="bg-primary h-full rounded-full transition-all duration-300"
-                        style={{ width: `${p.progress}%` }}
+                        style={{ width: `${projectProgress(p.id, tasks)}%` }}
                       />
                     </div>
 
@@ -330,42 +342,36 @@ export const PersonalDashboard: React.FC = () => {
           {/* UPCOMING Deadlines */}
           <div>
             <div className="text-[11px] font-mono font-bold text-text-muted tracking-wider uppercase mb-2">
-              UPCOMING
+              UPCOMING DEADLINES
             </div>
             <div className="border border-border rounded-lg bg-surface divide-y divide-border/60 overflow-hidden shadow-subtle">
-              <div className="p-3 flex items-start gap-2.5">
-                <span className="font-mono text-xs font-semibold text-primary shrink-0 w-12">
-                  11.18
-                </span>
-                <div>
-                  <div className="text-xs font-medium text-text-primary">
-                    팀 스프린트 회의 (AI 파이프라인)
+              {upcoming.length === 0 ? (
+                <div className="p-6 text-center text-xs text-text-muted">다가오는 마감이 없습니다.</div>
+              ) : (
+                upcoming.map(({ task, dDay, teamName }) => (
+                  <div
+                    key={task.id}
+                    onClick={() => setSelectedTaskIdForDetail(task.id)}
+                    className="p-3 flex items-start gap-2.5 hover:bg-surface-hover cursor-pointer transition-colors"
+                  >
+                    <span
+                      className={`font-mono text-xs font-semibold shrink-0 w-12 ${
+                        dDay < 0 ? 'text-red-500' : dDay <= 2 ? 'text-amber-500' : 'text-primary'
+                      }`}
+                    >
+                      {dDay === 0 ? 'D-day' : dDay > 0 ? `D-${dDay}` : `D+${-dDay}`}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-text-primary truncate">{task.title}</div>
+                      <div className="text-[11px] text-text-muted mt-0.5 truncate">
+                        {teamName ? `${teamName} · ` : ''}
+                        {task.projectName}
+                        {task.dueDate ? ` · ${formatDate(task.dueDate, 'MM.dd')}` : ''}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-[11px] text-text-muted mt-0.5">14:00 ~ 15:00 · Google Meet</div>
-                </div>
-              </div>
-              <div className="p-3 flex items-start gap-2.5">
-                <span className="font-mono text-xs font-semibold text-amber-500 shrink-0 w-12">
-                  11.19
-                </span>
-                <div>
-                  <div className="text-xs font-medium text-text-primary">
-                    FM-103 GitHub 연동 API 마감일
-                  </div>
-                  <div className="text-[11px] text-text-muted mt-0.5">Issue 생성 및 단방향 동기화 검증</div>
-                </div>
-              </div>
-              <div className="p-3 flex items-start gap-2.5">
-                <span className="font-mono text-xs font-semibold text-text-muted shrink-0 w-12">
-                  11.20
-                </span>
-                <div>
-                  <div className="text-xs font-medium text-text-primary">
-                    데스크톱 UI 디자인 시스템 리뷰
-                  </div>
-                  <div className="text-[11px] text-text-muted mt-0.5">Linear 테마 일관성 확인</div>
-                </div>
-              </div>
+                ))
+              )}
             </div>
           </div>
 
@@ -394,9 +400,7 @@ export const PersonalDashboard: React.FC = () => {
                     <span className="text-xs font-semibold text-text-primary truncate">
                       {m.title}
                     </span>
-                    <Badge variant="default" className="text-[9px] bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                      AI 완료
-                    </Badge>
+                    <MeetingStatusBadge status={m.status} />
                   </div>
                   <p className="text-[11px] text-text-secondary line-clamp-2 leading-relaxed">
                     {m.summary}

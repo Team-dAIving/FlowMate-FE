@@ -315,7 +315,7 @@ function createTray() {
         },
       },
     ]);
-    tray.setToolTip('FlowMate - Developer Workspace');
+    tray.setToolTip('FlowMate - 팀 프로젝트 관리');
     tray.setContextMenu(contextMenu);
     tray.on('double-click', () => {
       if (mainWindow) {
