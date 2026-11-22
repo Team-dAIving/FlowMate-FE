@@ -3,6 +3,7 @@ import { authApi } from '../services/authApi';
 import { ApiError, setUnauthorizedHandler, setWebTokenProvider } from '../services/http';
 import { consumeWebCallback, startWebLogin, webToken } from '../services/webAuth';
 import type { AuthResult } from '../types/electron';
+import { resetSessionData } from './resetSessionData';
 
 // Login works in both the desktop app and the browser:
 // - Desktop: the JWT lives only in the Electron main process (safeStorage, header attached there).
@@ -15,6 +16,9 @@ interface AuthState {
   status: AuthStatus;
   loginError: string | null;
   isLoggingIn: boolean;
+  /** Web only: a login result meant for the desktop app (see webAuth 'foreign'); offer to hand it over. */
+  desktopRelayUrl: string | null;
+  dismissDesktopRelay: () => void;
   /** Restores the session on startup (and finishes a web login redirect). Call once. */
   init: () => Promise<void>;
   startLogin: () => Promise<void>;
@@ -49,6 +53,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     } catch (err) {
       console.error('Failed to clear the session:', err);
     }
+    resetSessionData();
     set({ status: 'loggedOut', isLoggingIn: false });
   };
 
@@ -71,8 +76,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
   };
 
   // The server rejected the session: forget it and show the login screen
+  // The server rejected the session (the JWT lasts 1 hour and there is no refresh API): say why
   setUnauthorizedHandler(() => {
-    if (get().status !== 'loggedOut') void clearLocal();
+    if (get().status === 'loggedOut') return;
+    void clearLocal().then(() => set({ loginError: '로그인이 만료되었습니다. 다시 로그인해주세요.' }));
   });
 
   // Desktop: login results come from the main process after the browser round trip (ok/error only, no token)
@@ -87,7 +94,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
   /** Web: this page load may be the OAuth redirect back from the backend. */
   const finishWebRedirect = async () => {
     const cb = consumeWebCallback();
-    if (cb.kind === 'error') {
+    if (cb.kind === 'foreign') {
+      set({ desktopRelayUrl: cb.desktopUrl });
+    } else if (cb.kind === 'error') {
       set({ loginError: LOGIN_ERROR });
     } else if (cb.kind === 'token') {
       webToken.set(cb.accessToken);
@@ -106,6 +115,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
     status: 'checking',
     loginError: null,
     isLoggingIn: false,
+    desktopRelayUrl: null,
+    dismissDesktopRelay: () => set({ desktopRelayUrl: null }),
 
     init: () => {
       // React StrictMode runs effects twice in dev; the OAuth redirect must only be consumed once

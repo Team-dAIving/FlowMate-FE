@@ -68,7 +68,24 @@ export type WebCallback =
   | { kind: 'none' }
   | { kind: 'error'; error: string }
   | { kind: 'token'; accessToken: string; onboardingRequired: boolean }
-  | { kind: 'code'; code: string };
+  | { kind: 'code'; code: string }
+  // A login result this tab didn't start. The backend sends every login (desktop app included) to one
+  // web callback URL, so this is usually the desktop app's login: offer to hand it over (never adopt it here).
+  | { kind: 'foreign'; desktopUrl: string };
+
+const DESKTOP_CALLBACK = 'flowmate://oauth/callback';
+const RELAY_PARAMS = ['accessToken', 'code', 'onboardingRequired', 'error', 'state'] as const;
+const RELAY_VALUE = /^[A-Za-z0-9._~-]{1,2048}$/;
+
+/** flowmate://oauth/callback with only the known login params (validated), for the desktop app. */
+function desktopRelayUrl(params: URLSearchParams): string | null {
+  const q = new URLSearchParams();
+  for (const k of RELAY_PARAMS) {
+    const v = params.get(k);
+    if (v !== null && RELAY_VALUE.test(v)) q.set(k, v);
+  }
+  return q.has('accessToken') || q.has('code') || q.has('error') ? `${DESKTOP_CALLBACK}?${q.toString()}` : null;
+}
 
 /**
  * If this page load is the OAuth redirect, reads it once and removes it from the address bar/history.
@@ -97,8 +114,11 @@ export function consumeWebCallback(): WebCallback {
   const started = typeof pending.at === 'number' && Date.now() - pending.at <= LOGIN_WINDOW_MS;
   const stateOk = state !== null ? state === pending.state : started;
   if (!started || !stateOk) {
+    // Not this tab's login: don't log in here (login CSRF). The desktop app decides for itself
+    // whether it started a login, so handing the result over is no riskier than a flowmate:// link.
     console.warn('Ignored an OAuth callback this tab did not start.');
-    return { kind: 'none' };
+    const desktopUrl = desktopRelayUrl(params);
+    return desktopUrl ? { kind: 'foreign', desktopUrl } : { kind: 'none' };
   }
 
   const error = params.get('error');

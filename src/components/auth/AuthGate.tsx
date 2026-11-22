@@ -3,9 +3,10 @@ import { USE_REAL_API } from '../../services/http';
 import { useAuthStore } from '../../store/useAuthStore';
 import { LoginPage } from './LoginPage';
 import { NicknameDialog } from './NicknameDialog';
+import { DesktopRelayPrompt } from './DesktopRelayPrompt';
 
 /**
- * Login gate for the real backend. The JWT itself is held by the Electron main process.
+ * Login gate for the real backend (desktop: JWT held by the Electron main process; web: per tab).
  * Without VITE_API_BASE_URL the app runs on local mock data and skips login.
  */
 export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -17,15 +18,28 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
   }, [init]);
 
   if (!USE_REAL_API) return <>{children}</>;
+
+  let screen: React.ReactNode;
   if (status === 'checking') {
-    return (
+    screen = (
       <div className="h-screen w-screen flex items-center justify-center bg-background text-xs text-text-muted">
         로그인 정보를 확인하는 중…
       </div>
     );
+  } else if (status === 'loggedOut') {
+    screen = <LoginPage />;
+  } else if (status === 'onboarding') {
+    // First login: do not enter the app until a nickname is set
+    screen = <NicknameDialog />;
+  } else {
+    screen = children;
   }
-  if (status === 'loggedOut') return <LoginPage />;
-  // First login: do not enter the app until a nickname is set
-  if (status === 'onboarding') return <NicknameDialog />;
-  return <>{children}</>;
+
+  return (
+    <>
+      {screen}
+      {/* A desktop-app login that came back to this browser can show up in any state */}
+      <DesktopRelayPrompt />
+    </>
+  );
 };
