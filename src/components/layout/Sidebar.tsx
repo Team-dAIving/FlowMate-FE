@@ -205,17 +205,29 @@ export const Sidebar: React.FC = () => {
       {/* User Footer Profile */}
       <div className="p-3 border-t border-border bg-surface-hover/30">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            onClick={() => {
+              setCurrentProjectId(null);
+              setCurrentView('mypage');
+            }}
+            title="마이페이지"
+            aria-current={currentView === 'mypage' ? 'page' : undefined}
+            className={cn(
+              'flex items-center gap-2 min-w-0 flex-1 text-left rounded-md -m-1 p-1 transition-colors',
+              currentView === 'mypage' ? 'bg-primary-light/60' : 'hover:bg-surface-hover'
+            )}
+          >
             <Avatar src={currentUser?.avatarUrl} name={currentUser?.name} size="sm" />
             <div className="min-w-0">
               <div className="text-xs font-semibold text-text-primary truncate">
                 {currentUser?.name || '사용자'}
               </div>
               <div className="text-[10px] text-text-muted truncate">
-                {currentUser?.department || ''}
+                {currentUser?.githubLogin ? `@${currentUser.githubLogin}` : currentUser?.department || '마이페이지'}
               </div>
             </div>
-          </div>
+          </button>
           {USE_REAL_API ? (
             <button
               type="button"

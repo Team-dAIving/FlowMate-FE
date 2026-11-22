@@ -31,6 +31,7 @@ const toAuthUser = (dto: AuthUserDto): AuthUser => ({
     avatarUrl: dto.avatarUrl || undefined,
     role: 'MEMBER',
     userCode: dto.userCode,
+    githubLogin: dto.githubLogin,
   },
 });
 

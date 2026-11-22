@@ -9,6 +9,7 @@ import { TeamDetail } from '../teams/TeamDetail';
 import { TasksView } from '../tasks/TasksView';
 import { MeetingList } from '../meetings/MeetingList';
 import { MeetingDetail } from '../meetings/MeetingDetail';
+import { MyPage } from '../mypage/MyPage';
 
 // Modals
 import { TaskCreateModal } from '../tasks/TaskCreateModal';
@@ -71,6 +72,8 @@ export const AppLayout: React.FC = () => {
         return <MeetingList />;
       case 'meeting-detail':
         return <MeetingDetail />;
+      case 'mypage':
+        return <MyPage />;
       default:
         return <PersonalDashboard />;
     }

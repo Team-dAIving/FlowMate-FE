@@ -11,7 +11,8 @@ export type AppView =
   | 'tasks'
   | 'meetings'
   | 'meeting-detail'
-  | 'settings';
+  | 'settings'
+  | 'mypage';
 
 interface WorkspaceState {
   workspaces: Workspace[];
@@ -31,6 +32,8 @@ interface WorkspaceState {
   setSelectedTeamId: (teamId: string | null) => void;
   fetchProjects: () => Promise<void>;
   createProject: (data: Omit<Project, 'id' | 'createdAt' | 'progress'>) => Promise<Project>;
+  /** Changes the signed-in user's nickname (the only profile field the backend lets you edit). */
+  updateNickname: (nickname: string) => Promise<User>;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -98,5 +101,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const newProj = await api.createProject(data);
     await get().fetchProjects();
     return newProj;
+  },
+
+  updateNickname: async (nickname) => {
+    const updated = await api.updateCurrentUser({ name: nickname.trim() });
+    // Keep fields the server response doesn't carry (e.g. mock department)
+    const merged = { ...(get().currentUser || updated), ...updated };
+    set({ currentUser: merged });
+    return merged;
   },
 }));
