@@ -20,6 +20,7 @@ import { useTaskStore } from '../../store/useTaskStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { formatDate, formatTimeAgo } from '../../utils/formatters';
 import { safeHref } from '../../utils/github';
+import { isFeatureAvailable } from '../../services/features';
 
 export interface TaskDetailModalProps {
   taskId: string | null;
@@ -27,17 +28,40 @@ export interface TaskDetailModalProps {
 }
 
 export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClose }) => {
-  const { tasks, updateTask, updateTaskStatus, createGitHubIssue, deleteTask } = useTaskStore();
+  const { tasks, updateTask, updateTaskStatus, createGitHubIssue, deleteTask, fetchTaskDetail, addComment } = useTaskStore();
   const { currentUser, projects } = useWorkspaceStore();
   const [commentInput, setCommentInput] = useState('');
   const [isSyncingGitHub, setIsSyncingGitHub] = useState(false);
   const [issueError, setIssueError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [isSendingComment, setIsSendingComment] = useState(false);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
 
-  // The modal stays mounted while the task changes: don't carry a half-typed comment or an old error over
+  // What the backend lets us do right now (everything works on mock data)
+  const canEdit = isFeatureAvailable('taskWrite');
+  const canComment = isFeatureAvailable('taskComments');
+  const canDelete = isFeatureAvailable('taskDelete');
+  const canCreateIssue = isFeatureAvailable('github');
+
+  // The modal stays mounted while the task changes: don't carry a half-typed comment or an old error over,
+  // and load the full task (list items from the server are summaries without description/comments)
   useEffect(() => {
     setCommentInput('');
     setIssueError('');
-  }, [taskId]);
+    setActionError('');
+    if (!taskId) return;
+    let alive = true;
+    setIsLoadingDetail(true);
+    fetchTaskDetail(taskId)
+      .catch((err) => {
+        console.error('Failed to load task detail:', err);
+        if (alive) setActionError(err instanceof Error && err.message ? err.message : '업무 상세를 불러오지 못했습니다.');
+      })
+      .finally(() => alive && setIsLoadingDetail(false));
+    return () => {
+      alive = false;
+    };
+  }, [taskId, fetchTaskDetail]);
 
   const task = tasks.find((t) => t.id === taskId);
   if (!task) return null;
@@ -49,33 +73,30 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
       ? [...projectMembers, task.assignee]
       : projectMembers;
 
-  const handleStatusChange = (newStatus: TaskStatus) => {
-    updateTaskStatus(task.id, newStatus);
-  };
+  const handleStatusChange = (newStatus: TaskStatus) => runEdit(() => updateTaskStatus(task.id, newStatus));
 
-  const handlePriorityChange = (newPriority: TaskPriority) => {
-    updateTask(task.id, { priority: newPriority });
-  };
+  const handlePriorityChange = (newPriority: TaskPriority) => runEdit(() => updateTask(task.id, { priority: newPriority }));
 
   const handleAssigneeChange = (assigneeId: string) => {
     const newAssignee = projectMembers.find((m) => m.id === assigneeId);
-    if (newAssignee) {
-      updateTask(task.id, { assignee: newAssignee });
-    }
+    if (newAssignee) runEdit(() => updateTask(task.id, { assignee: newAssignee }));
   };
 
-  const handleAddComment = () => {
-    if (!commentInput.trim() || !currentUser) return;
-    const newComment = {
-      id: `c-${Date.now()}`,
-      user: currentUser,
-      content: commentInput.trim(),
-      createdAt: new Date().toISOString(),
-    };
-    updateTask(task.id, {
-      comments: [...task.comments, newComment],
-    });
-    setCommentInput('');
+  const handleAddComment = async () => {
+    const content = commentInput.trim();
+    if (!content || isSendingComment || !canComment) return;
+    if (content.length > 2000) return setActionError('댓글은 2,000자 이하로 입력해주세요.');
+    setIsSendingComment(true);
+    setActionError('');
+    try {
+      await addComment(task.id, content);
+      setCommentInput('');
+    } catch (err) {
+      console.error(err);
+      setActionError(err instanceof Error && err.message ? err.message : '댓글을 등록하지 못했습니다.');
+    } finally {
+      setIsSendingComment(false);
+    }
   };
 
   const handleCreateGitHubIssue = async () => {
@@ -93,10 +114,24 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
   };
 
   const handleDelete = async () => {
-    if (window.confirm('이 업무를 삭제하시겠습니까?')) {
+    if (!window.confirm('이 업무를 삭제하시겠습니까?')) return;
+    setActionError('');
+    try {
       await deleteTask(task.id);
       onClose();
+    } catch (err) {
+      console.error(err);
+      setActionError(err instanceof Error && err.message ? err.message : '업무를 삭제하지 못했습니다.');
     }
+  };
+
+  // Edits go through the store; if the backend can't take them yet, the controls are disabled below
+  const runEdit = (fn: () => Promise<unknown>) => {
+    setActionError('');
+    fn().catch((err) => {
+      console.error(err);
+      setActionError(err instanceof Error && err.message ? err.message : '변경하지 못했습니다.');
+    });
   };
 
   return (
@@ -110,6 +145,14 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
         </div>
       }
     >
+      {actionError && (
+        <p role="alert" className="mb-3 text-[11px] text-red-500">
+          {actionError}
+        </p>
+      )}
+      {!canEdit && (
+        <p className="mb-3 text-[11px] text-text-muted">업무 상태·우선순위·담당자 변경은 서버 연동 준비 중입니다. 댓글과 삭제는 사용할 수 있습니다.</p>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Main Column (2 cols) */}
         <div className="md:col-span-2 space-y-5">
@@ -117,7 +160,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
           <div>
             <div className="text-xs font-semibold text-text-secondary mb-1.5">업무 내용</div>
             <div className="p-3 rounded-lg border border-border bg-surface-hover/30 text-xs text-text-primary leading-relaxed whitespace-pre-line min-h-[80px]">
-              {task.description || '등록된 상세 설명이 없습니다.'}
+              {task.description || (isLoadingDetail ? '불러오는 중…' : '등록된 상세 설명이 없습니다.')}
             </div>
           </div>
 
@@ -167,6 +210,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
                   variant="outline"
                   onClick={handleCreateGitHubIssue}
                   isLoading={isSyncingGitHub}
+                  disabled={!canCreateIssue}
+                  title={canCreateIssue ? undefined : 'GitHub Issue 생성은 서버 연동 준비 중입니다.'}
                   className="text-xs h-7 gap-1"
                 >
                   <GitBranch className="h-3 w-3" />
@@ -214,11 +259,13 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
                 onChange={(e) => setCommentInput(e.target.value)}
                 onKeyDown={(e) => {
                 // Korean IME: the Enter that commits the last syllable must not also send the comment
-                if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddComment();
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) void handleAddComment();
               }}
+                maxLength={2000}
+                disabled={!canComment || isSendingComment}
                 className="flex-1 h-8 rounded-md border border-border bg-surface px-3 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
-              <Button size="sm" onClick={handleAddComment} className="h-8">
+              <Button size="sm" onClick={() => void handleAddComment()} isLoading={isSendingComment} disabled={!canComment} aria-label="댓글 등록" className="h-8">
                 <Send className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -235,7 +282,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
             <select
               value={task.status}
               onChange={(e) => handleStatusChange(e.target.value as TaskStatus)}
-              className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+              disabled={!canEdit}
+              className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary disabled:opacity-60 disabled:cursor-not-allowed font-mono focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="TODO">TODO</option>
               <option value="IN_PROGRESS">IN_PROGRESS</option>
@@ -252,7 +300,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
             <select
               value={task.priority}
               onChange={(e) => handlePriorityChange(e.target.value as TaskPriority)}
-              className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+              disabled={!canEdit}
+              className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary disabled:opacity-60 disabled:cursor-not-allowed font-mono focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="LOW">LOW</option>
               <option value="MEDIUM">MEDIUM</option>
@@ -269,7 +318,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
             <select
               value={task.assignee?.id || ''}
               onChange={(e) => handleAssigneeChange(e.target.value)}
-              className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              disabled={!canEdit}
+              className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="">담당자 선택...</option>
               {assigneeOptions.map((m) => (
@@ -314,7 +364,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
           {/* Delete Task */}
           <div className="pt-4 border-t border-border/80">
             <button
+              type="button"
               onClick={handleDelete}
+              disabled={!canDelete}
               className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1.5 w-full justify-center p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5" />

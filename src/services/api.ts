@@ -3,6 +3,7 @@ import {
   Workspace,
   Project,
   Task,
+  TaskComment,
   Meeting,
   Notification,
   ActionItem,
@@ -22,9 +23,10 @@ import {
   teamMembers,
   MockTeamRecord,
 } from './mockData';
-import { USE_REAL_API } from './http';
+import { ApiError, USE_REAL_API } from './http';
 import { teamApi } from './teamApi';
 import { authApi } from './authApi';
+import { projectTaskApi } from './projectTaskApi';
 import { repoForPosition } from '../utils/github';
 import { daysFromTodayISO, todayISO } from '../utils/dates';
 
@@ -85,7 +87,7 @@ function initStorage() {
   }
 }
 
-initStorage();
+if (!USE_REAL_API) initStorage();
 
 // Shape a mock team record like the backend's GET /api/teams response
 function mockRecordToTeam(t: MockTeamRecord, projects: Project[], tasks: Task[]): Team {
@@ -131,6 +133,13 @@ function setStored<T>(key: string, value: T): void {
   }
 }
 
+// Real API mode (VITE_API_BASE_URL set, i.e. the deployed service): features the backend doesn't have yet
+// return nothing or fail with this, instead of silently using local mock data.
+export const NOT_CONNECTED_MESSAGE = '이 기능은 아직 서버와 연결되지 않아 사용할 수 없습니다.';
+function notConnected(): never {
+  throw new ApiError(501, NOT_CONNECTED_MESSAGE);
+}
+
 // API Service with real REST call capability and robust mock fallback
 export const api = {
   // 1. Auth & User
@@ -140,6 +149,11 @@ export const api = {
   },
 
   updateCurrentUser: async (user: Partial<User>): Promise<User> => {
+    if (USE_REAL_API) {
+      // The backend only allows changing the nickname (PATCH /api/auth/me/nickname)
+      if (typeof user.name !== 'string') notConnected();
+      return (await authApi.setNickname(user.name)).user;
+    }
     const current = getStored<User>(STORAGE_KEYS.USER, currentUser);
     const updated = { ...current, ...user };
     setStored(STORAGE_KEYS.USER, updated);
@@ -148,21 +162,30 @@ export const api = {
 
   // 2. Workspace
   getWorkspaces: async (): Promise<Workspace[]> => {
+    if (USE_REAL_API) return [];
     const ws = getStored<Workspace>(STORAGE_KEYS.WORKSPACE, initialWorkspace);
     return [ws];
   },
 
   // 3. Projects
   getProjects: async (): Promise<Project[]> => {
+    if (USE_REAL_API) {
+      // GET /api/projects has no goal; the backend's projects.subject (the goal) only comes with the teams
+      const [projects, teams] = await Promise.all([projectTaskApi.getProjects(), teamApi.getTeams()]);
+      const subjectById = new Map(teams.flatMap((t) => t.projects).map((p) => [p.id, p.subject]));
+      return projects.map((p) => ({ ...p, goal: p.goal || subjectById.get(p.id) || '' }));
+    }
     return getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
   },
 
   getProjectById: async (id: string): Promise<Project | undefined> => {
+    if (USE_REAL_API) return (await projectTaskApi.getProjects()).find((p) => p.id === id);
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
     return projects.find((p) => p.id === id);
   },
 
   createProject: async (projectData: Omit<Project, 'id' | 'createdAt' | 'progress'>): Promise<Project> => {
+    if (USE_REAL_API) notConnected();
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
     const newProject: Project = {
       ...projectData,
@@ -176,6 +199,7 @@ export const api = {
   },
 
   updateProject: async (id: string, updateData: Partial<Project>): Promise<Project> => {
+    if (USE_REAL_API) notConnected();
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
     const index = projects.findIndex((p) => p.id === id);
     if (index === -1) throw new Error('Project not found');
@@ -269,6 +293,8 @@ export const api = {
 
   // 4. Tasks
   getTasks: async (projectId?: string): Promise<Task[]> => {
+    // Backend lists tasks per team only (GET /api/teams/{id}): gather them across my teams
+    if (USE_REAL_API) return projectTaskApi.getTasks((await teamApi.getTeams()).map((t) => t.id), projectId);
     const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
     if (projectId) {
       return tasks.filter((t) => t.projectId === projectId);
@@ -277,6 +303,7 @@ export const api = {
   },
 
   createTask: async (taskData: Partial<Task>): Promise<Task> => {
+    if (USE_REAL_API) notConnected();
     const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
     // Never fall back to some other project: the task would silently land in the wrong team's board
@@ -324,6 +351,7 @@ export const api = {
   },
 
   updateTask: async (id: string, updateData: Partial<Task>): Promise<Task> => {
+    if (USE_REAL_API) notConnected();
     const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
     const index = tasks.findIndex((t) => t.id === id);
     if (index === -1) throw new Error('Task not found');
@@ -353,14 +381,43 @@ export const api = {
   },
 
   deleteTask: async (id: string): Promise<boolean> => {
+    if (USE_REAL_API) {
+      await projectTaskApi.deleteTask(id); // DELETE /api/tasks/{id}
+      return true;
+    }
     const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
     const filtered = tasks.filter((t) => t.id !== id);
     setStored(STORAGE_KEYS.TASKS, filtered);
     return true;
   },
 
+  // Full task (description, dates, hours, comments, GitHub) — list items only carry a summary in real mode
+  getTaskDetail: async (id: string): Promise<Task> => {
+    if (USE_REAL_API) return projectTaskApi.getTaskDetail(id); // GET /api/tasks/{id}
+    const task = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks).find((t) => t.id === id);
+    if (!task) throw new Error('업무를 찾을 수 없습니다.');
+    return task;
+  },
+
+  addTaskComment: async (taskId: string, content: string): Promise<TaskComment> => {
+    if (USE_REAL_API) return projectTaskApi.addComment(taskId, content); // POST /api/tasks/{id}/comments
+    const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
+    const index = tasks.findIndex((t) => t.id === taskId);
+    if (index === -1) throw new Error('업무를 찾을 수 없습니다.');
+    const comment: TaskComment = {
+      id: `c-${Date.now()}`,
+      user: getStored<User>(STORAGE_KEYS.USER, currentUser),
+      content: content.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    tasks[index] = { ...tasks[index], comments: [...tasks[index].comments, comment] };
+    setStored(STORAGE_KEYS.TASKS, tasks);
+    return comment;
+  },
+
   // 5. GitHub Integration
   createGitHubIssue: async (taskId: string): Promise<Task> => {
+    if (USE_REAL_API) notConnected();
     const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
     const index = tasks.findIndex((t) => t.id === taskId);
     if (index === -1) throw new Error('Task not found');
@@ -402,6 +459,7 @@ export const api = {
 
   // 6. Meetings & AI Recording
   getMeetings: async (projectId?: string): Promise<Meeting[]> => {
+    if (USE_REAL_API) return [];
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     if (projectId) {
       return meetings.filter((m) => m.projectId === projectId);
@@ -410,11 +468,13 @@ export const api = {
   },
 
   getMeetingById: async (id: string): Promise<Meeting | undefined> => {
+    if (USE_REAL_API) return undefined;
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     return meetings.find((m) => m.id === id);
   },
 
   createMeeting: async (meetingData: Partial<Meeting>): Promise<Meeting> => {
+    if (USE_REAL_API) notConnected();
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
     const project = projects.find((p) => p.id === meetingData.projectId);
@@ -444,6 +504,7 @@ export const api = {
 
   // Simulate AI Analysis of recorded meeting (Transcribe + Bedrock)
   analyzeMeeting: async (meetingId: string): Promise<Meeting> => {
+    if (USE_REAL_API) notConnected();
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     const index = meetings.findIndex((m) => m.id === meetingId);
     if (index === -1) throw new Error('Meeting not found');
@@ -520,6 +581,7 @@ export const api = {
       customData?: Partial<ActionItem>;
     }
   ): Promise<{ task: Task; actionItem: ActionItem }> => {
+    if (USE_REAL_API) notConnected();
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     const meetingIndex = meetings.findIndex((m) => m.id === meetingId);
     if (meetingIndex === -1) throw new Error('Meeting not found');
@@ -576,6 +638,7 @@ export const api = {
   },
 
   rejectActionItem: async (meetingId: string, actionItemId: string): Promise<ActionItem> => {
+    if (USE_REAL_API) notConnected();
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     const meetingIndex = meetings.findIndex((m) => m.id === meetingId);
     if (meetingIndex === -1) throw new Error('Meeting not found');
@@ -597,10 +660,14 @@ export const api = {
 
   // 8. Notifications
   getNotifications: async (): Promise<Notification[]> => {
+    if (USE_REAL_API) return [];
     return getStored<Notification[]>(STORAGE_KEYS.NOTIFICATIONS, initialNotifications);
   },
 
   addNotification: (notif: Omit<Notification, 'id' | 'createdAt' | 'read'>): Notification => {
+    if (USE_REAL_API) {
+      return { ...notif, id: `notif-${Date.now()}`, read: false, createdAt: new Date().toISOString() };
+    }
     const notifs = getStored<Notification[]>(STORAGE_KEYS.NOTIFICATIONS, initialNotifications);
     const newNotif: Notification = {
       ...notif,
@@ -620,12 +687,14 @@ export const api = {
   },
 
   markNotificationAsRead: async (id: string): Promise<void> => {
+    if (USE_REAL_API) return;
     const notifs = getStored<Notification[]>(STORAGE_KEYS.NOTIFICATIONS, initialNotifications);
     const updated = notifs.map((n) => (n.id === id ? { ...n, read: true } : n));
     setStored(STORAGE_KEYS.NOTIFICATIONS, updated);
   },
 
   markAllNotificationsAsRead: async (): Promise<void> => {
+    if (USE_REAL_API) return;
     const notifs = getStored<Notification[]>(STORAGE_KEYS.NOTIFICATIONS, initialNotifications);
     const updated = notifs.map((n) => ({ ...n, read: true }));
     setStored(STORAGE_KEYS.NOTIFICATIONS, updated);

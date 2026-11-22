@@ -25,6 +25,9 @@ interface TaskState {
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<Task>;
   createGitHubIssue: (taskId: string) => Promise<Task>;
   deleteTask: (id: string) => Promise<void>;
+  /** Loads the full task (description, dates, hours, comments, GitHub) into the list. */
+  fetchTaskDetail: (id: string) => Promise<Task>;
+  addComment: (taskId: string, content: string) => Promise<void>;
 }
 
 export const useTaskStore = create<TaskState>((set, get) => ({
@@ -87,6 +90,22 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     await api.deleteTask(id);
     set((state) => ({
       tasks: state.tasks.filter((t) => t.id !== id),
+    }));
+  },
+
+  fetchTaskDetail: async (id) => {
+    const detail = await api.getTaskDetail(id);
+    // List items (real mode) are summaries; keep what the list knew if the detail lacks it
+    set((state) => ({
+      tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...detail, projectName: detail.projectName ?? t.projectName } : t)),
+    }));
+    return detail;
+  },
+
+  addComment: async (taskId, content) => {
+    const comment = await api.addTaskComment(taskId, content);
+    set((state) => ({
+      tasks: state.tasks.map((t) => (t.id === taskId ? { ...t, comments: [...t.comments, comment] } : t)),
     }));
   },
 }));

@@ -5,6 +5,7 @@ import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { formatDate } from '../../utils/formatters';
 import { isOverdue as isTaskOverdue } from '../../utils/dates';
+import { isFeatureAvailable } from '../../services/features';
 import { useTaskStore } from '../../store/useTaskStore';
 import { useUIStore } from '../../store/useUIStore';
 
@@ -28,11 +29,14 @@ export const TaskKanbanView: React.FC<TaskKanbanViewProps> = ({ tasks, onSelectT
     e.preventDefault();
   };
 
+  // Moving cards changes the task status: only where the backend can store it
+  const canMove = isFeatureAvailable('taskWrite');
+
   const handleDrop = (e: React.DragEvent, status: TaskStatus) => {
     e.preventDefault();
     const taskId = e.dataTransfer.getData('taskId');
-    if (taskId) {
-      updateTaskStatus(taskId, status);
+    if (taskId && canMove) {
+      updateTaskStatus(taskId, status).catch((err) => console.error('Failed to move task:', err));
     }
   };
 
@@ -82,7 +86,7 @@ export const TaskKanbanView: React.FC<TaskKanbanViewProps> = ({ tasks, onSelectT
                   return (
                     <div
                       key={task.id}
-                      draggable
+                      draggable={canMove}
                       onDragStart={(e) => e.dataTransfer.setData('taskId', task.id)}
                       onClick={() => onSelectTask(task.id)}
                       className="p-3 bg-surface border border-border rounded-lg shadow-subtle hover:border-primary/50 hover:shadow-card cursor-pointer transition-all space-y-2 group"

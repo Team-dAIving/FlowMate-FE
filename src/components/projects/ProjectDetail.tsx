@@ -54,6 +54,7 @@ import { ProjectMember, ProjectPosition } from '../../types';
 import { positionColor, positionLabel, projectTechStack } from '../../utils/positions';
 import { safeHref } from '../../utils/github';
 import { projectProgress } from '../../utils/progress';
+import { isFeatureAvailable } from '../../services/features';
 
 export const ProjectDetail: React.FC = () => {
   const { currentProjectId, projects, setCurrentView, fetchProjects } = useWorkspaceStore();
@@ -92,6 +93,8 @@ export const ProjectDetail: React.FC = () => {
   const projectMeetings = meetings.filter((m) => m.projectId === project.id);
   const connectedTeams = teams.filter((t) => (t.projectIds || []).includes(project.id));
   const leader = getProjectLeader(project);
+  // Leader/role edits need a project update API (not on the backend yet)
+  const canEditProject = isFeatureAvailable('projectWrite');
 
   // Leader is a project-level setting: update leaderId and keep OWNER role in sync
   const handleChangeLeader = async (userId: string) => {
@@ -577,7 +580,7 @@ export const ProjectDetail: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {editingMemberId !== m.user.id && (
+                {canEditProject && editingMemberId !== m.user.id && (
                   <button
                     type="button"
                     onClick={() => startEditMember(m)}
@@ -591,7 +594,7 @@ export const ProjectDetail: React.FC = () => {
                     <Crown className="h-3 w-3" />
                     리더
                   </span>
-                ) : (
+                ) : canEditProject && (
                   <button
                     type="button"
                     onClick={() => handleChangeLeader(m.user.id)}
