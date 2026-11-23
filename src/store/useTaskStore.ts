@@ -97,7 +97,11 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     const detail = await api.getTaskDetail(id);
     // List items (real mode) are summaries; keep what the list knew if the detail lacks it
     set((state) => ({
-      tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...detail, projectName: detail.projectName ?? t.projectName } : t)),
+      tasks: state.tasks.some((task) => task.id === id)
+        ? state.tasks.map((task) =>
+            task.id === id ? { ...task, ...detail, projectName: detail.projectName ?? task.projectName } : task
+          )
+        : [detail, ...state.tasks],
     }));
     return detail;
   },

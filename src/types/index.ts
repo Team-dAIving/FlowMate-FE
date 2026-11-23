@@ -48,6 +48,19 @@ export interface TeamProjectSummary {
   subject?: string;
 }
 
+// GET /api/teams/{id} returns richer project/member summaries than the team list.
+export interface TeamDetailProject extends TeamProjectSummary {
+  description?: string;
+  totalTaskCount: number;
+  completedTaskCount: number;
+  progressPercent: number;
+}
+
+export interface TeamDetailMember extends TeamMember {
+  totalAssignedTaskCount: number;
+  inProgressAssignedTaskCount: number;
+}
+
 export interface Team {
   id: string;
   name: string;
@@ -59,6 +72,16 @@ export interface Team {
   projects: TeamProjectSummary[];
   color?: string;
   inProgressTaskCount?: number; // 백엔드가 계산한 IN_PROGRESS 업무 수
+}
+
+export interface TeamDetail extends Omit<Team, 'members' | 'projects'> {
+  projectCount: number;
+  taskCount: number;
+  inProgressTaskCount: number;
+  completedTaskCount: number;
+  members: TeamDetailMember[];
+  projects: TeamDetailProject[];
+  tasks: Task[];
 }
 
 export interface CreateTeamInput {

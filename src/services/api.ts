@@ -8,6 +8,7 @@ import {
   Notification,
   ActionItem,
   Team,
+  TeamDetail,
   PublicUserProfile,
   USER_CODE_PATTERN,
   CreateTeamInput,
@@ -352,6 +353,49 @@ export const api = {
   getTeamById: async (id: string): Promise<Team | undefined> => {
     const teams = await api.getTeams();
     return teams.find((t) => t.id === id);
+  },
+
+  getTeamDetail: async (id: string): Promise<TeamDetail | undefined> => {
+    if (USE_REAL_API) return teamApi.getTeamDetail(id);
+
+    const team = (await api.getTeams()).find((item) => item.id === id);
+    if (!team) return undefined;
+    const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects).filter((project) =>
+      team.projectIds.includes(project.id)
+    );
+    const projectIds = new Set(projects.map((project) => project.id));
+    const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks).filter((task) => projectIds.has(task.projectId));
+    const completedTaskCount = tasks.filter((task) => task.status === 'DONE').length;
+
+    return {
+      ...team,
+      projectCount: projects.length,
+      taskCount: tasks.length,
+      inProgressTaskCount: tasks.filter((task) => task.status !== 'DONE').length,
+      completedTaskCount,
+      projects: projects.map((project) => {
+        const projectTasks = tasks.filter((task) => task.projectId === project.id);
+        const completed = projectTasks.filter((task) => task.status === 'DONE').length;
+        return {
+          id: project.id,
+          name: project.name,
+          description: project.description || undefined,
+          subject: project.goal || undefined,
+          totalTaskCount: projectTasks.length,
+          completedTaskCount: completed,
+          progressPercent: projectTasks.length === 0 ? 0 : Math.round((completed * 100) / projectTasks.length),
+        };
+      }),
+      members: team.members.map((member) => {
+        const assigned = tasks.filter((task) => task.assignee?.id === member.id);
+        return {
+          ...member,
+          totalAssignedTaskCount: assigned.length,
+          inProgressAssignedTaskCount: assigned.filter((task) => task.status === 'IN_PROGRESS').length,
+        };
+      }),
+      tasks,
+    };
   },
 
   createTeam: async (input: CreateTeamInput): Promise<Team> => {

@@ -17,6 +17,7 @@ import { Button } from '../ui/Button';
 import { Avatar } from '../ui/Avatar';
 import { getProjectMemberUsers } from '../../utils/projectMembers';
 import { useTaskStore } from '../../store/useTaskStore';
+import { useTeamStore } from '../../store/useTeamStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { formatDate, formatTimeAgo } from '../../utils/formatters';
 import { safeHref } from '../../utils/github';
@@ -30,6 +31,7 @@ export interface TaskDetailModalProps {
 
 export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClose }) => {
   const { tasks, updateTask, updateTaskStatus, createGitHubIssue, deleteTask, fetchTaskDetail, addComment } = useTaskStore();
+  const { teamDetail, fetchTeamDetail } = useTeamStore();
   const { currentUser, projects } = useWorkspaceStore();
   const [commentInput, setCommentInput] = useState('');
   const [isSyncingGitHub, setIsSyncingGitHub] = useState(false);
@@ -119,6 +121,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
     setActionError('');
     try {
       await deleteTask(task.id);
+      if (teamDetail?.tasks.some((teamTask) => teamTask.id === task.id)) {
+        await fetchTeamDetail(teamDetail.id);
+      }
       onClose();
     } catch (err) {
       console.error(err);

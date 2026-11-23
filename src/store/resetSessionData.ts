@@ -10,7 +10,15 @@ import { useWorkspaceStore } from './useWorkspaceStore';
  * Theme and other device preferences are kept.
  */
 export function resetSessionData(): void {
-  useTeamStore.setState({ teams: [], currentTeamId: null, isLoading: false, error: null });
+  useTeamStore.setState({
+    teams: [],
+    teamDetail: null,
+    currentTeamId: null,
+    isLoading: false,
+    isDetailLoading: false,
+    error: null,
+    detailError: null,
+  });
   useWorkspaceStore.setState({
     currentUser: null,
     workspaces: [],
