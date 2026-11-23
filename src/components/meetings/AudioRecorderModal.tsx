@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, Square, Play, Pause, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Mic, Square, Play, Pause, Sparkles, Upload } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -7,7 +7,6 @@ import { WaveformVisualizer } from './WaveformVisualizer';
 import { useMeetingStore } from '../../store/useMeetingStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { formatDuration } from '../../utils/formatters';
-import { todayISO } from '../../utils/dates';
 import { isFeatureAvailable } from '../../services/features';
 import { NotConnected } from '../ui/NotConnected';
 
@@ -17,7 +16,7 @@ export interface AudioRecorderModalProps {
 }
 
 export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, onClose }) => {
-  const { createMeeting, analyzeMeeting } = useMeetingStore();
+  const { createMeeting, completeMeetingRecording } = useMeetingStore();
   const { projects, currentProjectId, setCurrentView } = useWorkspaceStore();
 
   const [title, setTitle] = useState('');
@@ -25,7 +24,9 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [isStarting, setIsStarting] = useState(false);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
 
   const [notice, setNotice] = useState(''); // e.g. no microphone -> demo mode
   const [error, setError] = useState('');
@@ -33,6 +34,8 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const createdMeetingIdRef = useRef<string | null>(null);
 
   // The modal stays mounted: start every recording clean, in the project the user is looking at
   useEffect(() => {
@@ -40,8 +43,12 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
     setTitle('');
     setDuration(0);
     setIsPaused(false);
+    setIsStarting(false);
+    setRecordedBlob(null);
     setNotice('');
     setError('');
+    chunksRef.current = [];
+    createdMeetingIdRef.current = null;
     setProjectId(projects.some((p) => p.id === currentProjectId) ? currentProjectId! : projects[0]?.id || '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -66,22 +73,51 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
     setDuration(0);
     setError('');
     setNotice('');
+    if (!projectId) {
+      setError('회의를 생성할 프로젝트를 선택해주세요.');
+      return;
+    }
+    const meetingTitle = title.trim() || `팀 회의 (${new Date().toLocaleDateString()})`;
+    if (meetingTitle.length > 200) {
+      setError('회의 제목은 200자 이하여야 합니다.');
+      return;
+    }
+    setIsStarting(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
 
-      const mediaRecorder = new MediaRecorder(stream);
+      const supportedType = ['audio/webm', 'audio/mp4', 'audio/ogg'].find((type) =>
+        MediaRecorder.isTypeSupported(type)
+      );
+      if (!supportedType) {
+        throw new Error('이 환경에서 서버가 지원하는 녹음 형식을 만들 수 없습니다.');
+      }
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: supportedType });
       mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
 
-      mediaRecorder.start();
+      const meeting = await createMeeting({
+        projectId,
+        projectName: projects.find((project) => project.id === projectId)?.name,
+        title: meetingTitle,
+      });
+      createdMeetingIdRef.current = meeting.id;
+      setTitle(meetingTitle);
+      mediaRecorder.start(1000);
       setIsRecording(true);
       setIsPaused(false);
     } catch (err) {
-      console.warn('Microphone permission or hardware access issue. Falling back to simulated stream:', err);
-      // Simulated recording for dev / browser sandbox — but say so, instead of pretending to record
-      setNotice('마이크를 사용할 수 없어 시연용 모드로 진행합니다. 실제 음성은 녹음되지 않습니다.');
-      setIsRecording(true);
-      setIsPaused(false);
+      console.error(err);
+      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+      audioStreamRef.current = null;
+      mediaRecorderRef.current = null;
+      setError(err instanceof Error && err.message ? err.message : '회의 녹음을 시작하지 못했습니다.');
+    } finally {
+      setIsStarting(false);
     }
   };
 
@@ -99,54 +135,59 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
     setIsPaused(false);
   };
 
-  const stopAndAnalyze = async () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach((track) => track.stop());
-    }
-
-    setIsRecording(false);
-    setIsProcessingAI(true);
-
-    setError('');
-    let newMeeting;
-    try {
-      newMeeting = await createMeeting({
-        projectId,
-        title: title.trim() || `팀 회의 (${new Date().toLocaleDateString()})`,
-        meetingDate: todayISO(),
-        audioDurationSeconds: duration, // real length (it used to invent 120s for short recordings)
-      });
-    } catch (err) {
-      // Nothing was saved: stay here so the user can try again
-      console.error(err);
-      setIsProcessingAI(false);
-      setError(err instanceof Error && err.message ? err.message : '회의를 저장하지 못했습니다.');
+  const uploadAndRequestAnalysis = async (recording: Blob) => {
+    const meetingId = createdMeetingIdRef.current;
+    if (!meetingId) {
+      setError('생성된 회의 정보를 찾을 수 없습니다.');
       return;
     }
-
-    // The meeting is saved from here on. If analysis fails, go to it (it can be re-analyzed there)
-    // instead of offering a retry here, which would save the same meeting twice.
-    let analysisFailed = false;
+    setIsProcessingAI(true);
+    setError('');
     try {
-      await analyzeMeeting(newMeeting.id);
+      await completeMeetingRecording(meetingId, recording, duration);
+      setRecordedBlob(null);
+      onClose();
+      setCurrentView('meeting-detail', meetingId);
     } catch (err) {
       console.error(err);
-      analysisFailed = true;
+      setError(err instanceof Error && err.message ? err.message : '녹음 업로드 또는 STT 요청에 실패했습니다.');
+    } finally {
+      setIsProcessingAI(false);
     }
-    setIsProcessingAI(false);
-    onClose();
-    setCurrentView('meeting-detail', newMeeting.id);
-    if (analysisFailed) {
-      window.alert('회의는 저장됐지만 AI 분석에 실패했습니다. 회의 상세에서 다시 분석할 수 있습니다.');
+  };
+
+  const stopAndAnalyze = async () => {
+    const recorder = mediaRecorderRef.current;
+    try {
+      if (recorder && recorder.state !== 'inactive') {
+        await new Promise<void>((resolve, reject) => {
+          recorder.addEventListener('stop', () => resolve(), { once: true });
+          recorder.addEventListener('error', () => reject(new Error('녹음 파일 생성에 실패했습니다.')), {
+            once: true,
+          });
+          recorder.stop();
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : '녹음을 종료하지 못했습니다.');
+      return;
+    } finally {
+      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+      audioStreamRef.current = null;
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
     }
+
+    const contentType = recorder?.mimeType.split(';', 1)[0] || 'audio/webm';
+    const recording = new Blob(chunksRef.current, { type: contentType });
+    setRecordedBlob(recording);
+    await uploadAndRequestAnalysis(recording);
   };
 
   const handleClose = () => {
     // Saving/analysis in progress: closing now would yank the user to the meeting later from elsewhere
-    if (isProcessingAI) return;
+    if (isProcessingAI || isStarting) return;
     if (isRecording) {
       if (!window.confirm('녹음이 진행 중입니다. 정말 중단하고 닫으시겠습니까?')) {
         return;
@@ -155,6 +196,9 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
     if (audioStreamRef.current) {
       audioStreamRef.current.getTracks().forEach((t) => t.stop());
     }
+    if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    audioStreamRef.current = null;
     setIsRecording(false);
     setDuration(0);
     onClose();
@@ -191,7 +235,7 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
             </label>
             <select
               value={projectId}
-              disabled={isRecording || isProcessingAI}
+              disabled={isRecording || isStarting || isProcessingAI || recordedBlob !== null}
               onChange={(e) => setProjectId(e.target.value)}
               className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
             >
@@ -207,7 +251,7 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
             label="회의 제목 (Meeting Title)"
             placeholder="예: 해커톤 1일차 중간 점검"
             value={title}
-            disabled={isRecording || isProcessingAI}
+            disabled={isRecording || isStarting || isProcessingAI || recordedBlob !== null}
             onChange={(e) => setTitle(e.target.value)}
           />
         </div>
@@ -236,16 +280,31 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
 
         {/* Recording Controls */}
         <div className="p-4 rounded-lg border border-border bg-surface-hover/50 flex flex-col items-center justify-center space-y-3">
-          {!isRecording && !isProcessingAI && (
+          {!isRecording && !isProcessingAI && !recordedBlob && (
             <Button
               type="button"
               variant="danger"
               size="lg"
               onClick={startRecording}
+              isLoading={isStarting}
+              disabled={isStarting || !projectId}
               className="w-full h-10 gap-2"
             >
               <Mic className="h-4 w-4" />
               <span>회의 녹음 시작</span>
+            </Button>
+          )}
+
+          {!isRecording && !isProcessingAI && recordedBlob && (
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              onClick={() => uploadAndRequestAnalysis(recordedBlob)}
+              className="w-full h-10 gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              <span>녹음 업로드 다시 시도</span>
             </Button>
           )}
 
@@ -277,6 +336,7 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
                 type="button"
                 variant="primary"
                 onClick={stopAndAnalyze}
+                disabled={duration < 1}
                 className="flex-1 h-9 gap-1.5 bg-primary"
               >
                 <Square className="h-3.5 w-3.5" />
@@ -289,10 +349,10 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
             <div className="text-center py-4 space-y-2">
               <div className="flex items-center justify-center gap-2 text-primary font-semibold text-xs">
                 <Sparkles className="h-4 w-4 animate-spin" />
-                <span>Amazon Bedrock & Transcribe 분석 중...</span>
+                <span>녹음 업로드 및 STT 요청 중...</span>
               </div>
               <p className="text-[11px] text-text-muted">
-                회의 음성을 STT 변환하고 주요 안건, 결정 사항, Action Items를 추출하고 있습니다.
+                녹음 파일을 업로드하고 서버에 STT 분석을 요청하고 있습니다.
               </p>
             </div>
           )}

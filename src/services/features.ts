@@ -19,7 +19,7 @@ const SERVER_FEATURES = {
   taskComments: true, // POST /api/tasks/{id}/comments
   taskDelete: true, // DELETE /api/tasks/{id}
   meetings: true, // GET /api/projects/{id}/meetings (list: title, summary, status, approved item count)
-  meetingWrite: false, // recording upload, STT/AI analysis, meeting detail with action items and transcript
+  meetingWrite: true, // POST /api/meetings, recording upload/complete, GET /api/meetings/{id}
   notifications: false,
   github: false, // creating a GitHub issue from a task
 } as const;

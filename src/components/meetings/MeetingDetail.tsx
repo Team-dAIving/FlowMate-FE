@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { isFeatureAvailable } from '../../services/features';
+import { USE_REAL_API } from '../../services/http';
 import { NotConnected } from '../ui/NotConnected';
 import {
   ArrowLeft,
@@ -33,10 +34,11 @@ import { ActionItem, TaskPriority } from '../../types';
 import { formatDate, formatDuration } from '../../utils/formatters';
 import { daysFromTodayISO } from '../../utils/dates';
 import { safeHref } from '../../utils/github';
+import { MeetingStatusBadge } from './MeetingStatusBadge';
 
 export const MeetingDetail: React.FC = () => {
   const { selectedMeetingId, setCurrentView, projects, currentUser } = useWorkspaceStore();
-  const { meetings, approveActionItem, rejectActionItem, analyzeMeeting, isAnalyzing } = useMeetingStore();
+  const { meetings, fetchMeetingById, approveActionItem, rejectActionItem, analyzeMeeting, isAnalyzing } = useMeetingStore();
   const { fetchTasks } = useTaskStore();
 
   // No silent fallback to another meeting: that would show (and let you approve) the wrong team's items
@@ -60,6 +62,19 @@ export const MeetingDetail: React.FC = () => {
     setEditingId(null);
     setActionError('');
   }, [selectedMeetingId]);
+
+  // The upload completion response is normally STT_QUEUED. Refresh the detail until the
+  // backend finishes analysis so the user does not need to leave and reopen this screen.
+  useEffect(() => {
+    if (!selectedMeetingId) return;
+    void fetchMeetingById(selectedMeetingId);
+  }, [selectedMeetingId, fetchMeetingById]);
+
+  useEffect(() => {
+    if (!selectedMeetingId || !meeting || !['RECORDING', 'RECORDED', 'TRANSCRIBING'].includes(meeting.status)) return;
+    const interval = window.setInterval(() => void fetchMeetingById(selectedMeetingId), 5000);
+    return () => window.clearInterval(interval);
+  }, [selectedMeetingId, meeting?.status, fetchMeetingById]);
 
   if (!meeting) {
     return (
@@ -170,7 +185,8 @@ export const MeetingDetail: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {meeting.status !== 'ANALYZED' && isFeatureAvailable('meetingWrite') && (
+            <MeetingStatusBadge status={meeting.status} />
+            {!USE_REAL_API && meeting.status !== 'ANALYZED' && isFeatureAvailable('meetingWrite') && (
               <Button
                 size="sm"
                 variant="primary"
@@ -190,6 +206,17 @@ export const MeetingDetail: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {meeting.status === 'TRANSCRIBING' && (
+        <div className="p-3.5 rounded-lg border border-blue-200 bg-blue-50 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
+          STT 및 AI 분석을 진행하고 있습니다. 완료될 때까지 이 화면이 자동으로 갱신됩니다.
+        </div>
+      )}
+      {meeting.status === 'FAILED' && (
+        <div role="alert" className="p-3.5 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+          AI 분석에 실패했습니다.{meeting.failureReason ? ` ${meeting.failureReason}` : ''}
+        </div>
+      )}
 
       {!isFeatureAvailable('meetingWrite') && (
         <NotConnected feature="회의 업무 승인·전문 보기" />
@@ -222,7 +249,7 @@ export const MeetingDetail: React.FC = () => {
               </div>
             </div>
 
-            <label className="flex items-center gap-1.5 shrink-0 font-medium text-text-primary cursor-pointer select-none">
+            {!USE_REAL_API && <label className="flex items-center gap-1.5 shrink-0 font-medium text-text-primary cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={createGitHubIssueOnApprove}
@@ -233,7 +260,7 @@ export const MeetingDetail: React.FC = () => {
                 <GitBranch className="h-3 w-3 text-primary" />
                 승인 시 GitHub Issue 동시 생성
               </span>
-            </label>
+            </label>}
           </div>
 
           {/* Action Items List */}
@@ -269,7 +296,7 @@ export const MeetingDetail: React.FC = () => {
 
                       {/* Header action buttons */}
                       <div className="flex items-center gap-1.5">
-                        {isPending && !isEditing && (
+                        {!USE_REAL_API && isPending && !isEditing && (
                           <button
                             onClick={() => startEdit(item)}
                             className="p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-hover transition-colors"
@@ -279,7 +306,7 @@ export const MeetingDetail: React.FC = () => {
                           </button>
                         )}
 
-                        {isPending && (
+                        {!USE_REAL_API && isPending && (
                           <button
                             onClick={() => handleReject(item.id)}
                             className="p-1 text-text-muted hover:text-status-danger rounded hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
@@ -406,19 +433,23 @@ export const MeetingDetail: React.FC = () => {
                                 )}
                               </div>
                             ) : isPending ? (
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="primary"
-                                  onClick={() => handleApprove(item)}
-                                  isLoading={busyItemId === item.id}
-                                  disabled={busyItemId !== null}
-                                  className="text-xs h-7 gap-1"
-                                >
-                                  <Check className="h-3.5 w-3.5" />
-                                  <span>업무 승인 및 생성</span>
-                                </Button>
-                              </div>
+                              USE_REAL_API ? (
+                                <span className="text-xs text-amber-600">검토 대기</span>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="primary"
+                                    onClick={() => handleApprove(item)}
+                                    isLoading={busyItemId === item.id}
+                                    disabled={busyItemId !== null}
+                                    className="text-xs h-7 gap-1"
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                    <span>업무 승인 및 생성</span>
+                                  </Button>
+                                </div>
+                              )
                             ) : (
                               <span className="text-xs text-red-500">거절된 업무</span>
                             )}

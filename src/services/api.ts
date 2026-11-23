@@ -40,6 +40,7 @@ import { getProjectLeader } from '../utils/projectLeader';
 import { countByStatus, isOpenStatus } from '../utils/taskStatus';
 import { addDays, differenceInCalendarDays, format, parseISO } from 'date-fns';
 import { daysFromTodayISO, localDayOf, todayISO } from '../utils/dates';
+import { meetingApi } from './meetingApi';
 
 const STORAGE_KEYS = {
   USER: 'flowmate_user',
@@ -722,14 +723,16 @@ export const api = {
   },
 
   getMeetingById: async (id: string): Promise<Meeting | undefined> => {
-    // No meeting detail endpoint yet: the list item is all there is
-    if (USE_REAL_API) return (await api.getMeetings()).find((m) => m.id === id);
+    if (USE_REAL_API) return meetingApi.getById(id);
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     return meetings.find((m) => m.id === id);
   },
 
   createMeeting: async (meetingData: Partial<Meeting>): Promise<Meeting> => {
-    if (USE_REAL_API) notConnected();
+    if (USE_REAL_API) {
+      const projectId = meetingData.projectId || '';
+      return meetingApi.create(projectId, (meetingData.title || '').trim(), meetingData.projectName);
+    }
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
     const project = projects.find((p) => p.id === meetingData.projectId);
@@ -743,7 +746,7 @@ export const api = {
       meetingDate: meetingData.meetingDate || todayISO(),
       // Default: that project's own team, not a fixed person (teammates differ per team)
       participants: meetingData.participants || (project.members || []).map((m) => m.user),
-      status: 'RECORDED',
+      status: 'RECORDING',
       audioDurationSeconds: meetingData.audioDurationSeconds || 0,
       createdAt: new Date().toISOString(),
       actionItems: [],
@@ -755,6 +758,20 @@ export const api = {
     const updated = [newMeeting, ...meetings];
     setStored(STORAGE_KEYS.MEETINGS, updated);
     return newMeeting;
+  },
+
+  completeMeetingRecording: async (meetingId: string, recording: Blob, durationSeconds: number): Promise<Meeting> => {
+    if (USE_REAL_API) return meetingApi.uploadAndComplete(meetingId, recording, durationSeconds);
+    const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
+    const index = meetings.findIndex((meeting) => meeting.id === meetingId);
+    if (index === -1) throw new Error('Meeting not found');
+    meetings[index] = {
+      ...meetings[index],
+      status: 'RECORDED',
+      audioDurationSeconds: Math.max(1, Math.round(durationSeconds)),
+    };
+    setStored(STORAGE_KEYS.MEETINGS, meetings);
+    return api.analyzeMeeting(meetingId);
   },
 
   // Simulate AI Analysis of recorded meeting (Transcribe + Bedrock)

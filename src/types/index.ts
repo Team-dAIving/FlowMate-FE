@@ -266,6 +266,8 @@ export interface Meeting {
   audioUrl?: string;
   audioDurationSeconds?: number;
   status: MeetingStatus;
+  failureReason?: string;
+  transcriptionJobId?: string;
   summary?: string;
   decisions?: string[];
   actionItems?: ActionItem[];

@@ -11,6 +11,7 @@ interface MeetingState {
   fetchMeetings: (projectId?: string) => Promise<void>;
   fetchMeetingById: (id: string) => Promise<Meeting | undefined>;
   createMeeting: (data: Partial<Meeting>) => Promise<Meeting>;
+  completeMeetingRecording: (meetingId: string, recording: Blob, durationSeconds: number) => Promise<Meeting>;
   analyzeMeeting: (meetingId: string) => Promise<Meeting>;
   approveActionItem: (
     meetingId: string,
@@ -41,7 +42,19 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
     set({ isLoading: true });
     try {
       const meeting = await api.getMeetingById(id);
-      set({ currentMeeting: meeting || null, isLoading: false });
+      set((state) => ({
+        currentMeeting: meeting || null,
+        meetings: meeting
+          ? state.meetings.some((item) => item.id === meeting.id)
+            ? state.meetings.map((item) =>
+                item.id === meeting.id
+                  ? { ...item, ...meeting, projectName: meeting.projectName || item.projectName }
+                  : item
+              )
+            : [meeting, ...state.meetings]
+          : state.meetings,
+        isLoading: false,
+      }));
       return meeting;
     } catch (err) {
       console.error('Failed to fetch meeting:', err);
@@ -52,8 +65,19 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
 
   createMeeting: async (data) => {
     const newMeeting = await api.createMeeting(data);
-    await get().fetchMeetings();
+    set((state) => ({ meetings: [newMeeting, ...state.meetings.filter((item) => item.id !== newMeeting.id)] }));
     return newMeeting;
+  },
+
+  completeMeetingRecording: async (meetingId, recording, durationSeconds) => {
+    const meeting = await api.completeMeetingRecording(meetingId, recording, durationSeconds);
+    set((state) => ({
+      currentMeeting: meeting,
+      meetings: state.meetings.map((item) =>
+        item.id === meetingId ? { ...item, ...meeting, projectName: meeting.projectName || item.projectName } : item
+      ),
+    }));
+    return meeting;
   },
 
   analyzeMeeting: async (meetingId: string) => {
