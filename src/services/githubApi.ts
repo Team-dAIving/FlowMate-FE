@@ -2,10 +2,11 @@ import { GitHubInstallation } from '../types';
 import { http } from './http';
 
 // FlowMate GitHub App (FlowMate-BE dev):
-//   GET  /api/github/installations        -> accounts/orgs where I installed the app, with their repos
-//   POST /api/github/installations/start  -> { installUrl, expiresAt } (signed state, ~10 min)
-// The backend learns about a new installation from GitHub's webhook, so a fresh install can take
-// a moment to show up in the list.
+//   GET  /api/github/installations?teamId=   -> the team's accounts/orgs with the app installed, with their repos
+//   POST /api/github/installations/start     -> { installUrl, expiresAt } (signed state, ~10 min)
+//   POST /api/github/installations/complete  -> { state, installationId } after GitHub redirects back (204)
+// GitHub sends the user back to {web app}/github/install/callback?installation_id=..&state=..; the
+// app then calls complete so the server saves the installation (see services/githubInstall.ts).
 
 interface RepositoryDto {
   id: number;
@@ -39,12 +40,25 @@ export const toInstallation = (dto: InstallationDto): GitHubInstallation => ({
 });
 
 export const githubApi = {
-  getInstallations: async (): Promise<GitHubInstallation[]> => {
+  getInstallations: async (teamId: string): Promise<GitHubInstallation[]> => {
     // The backend asks GitHub for each installation's repos: allow more than the default timeout
-    const res = await http<{ installations?: InstallationDto[] }>('/api/github/installations', { timeoutMs: 30000 });
+    const res = await http<{ installations?: InstallationDto[] }>(
+      `/api/github/installations?${new URLSearchParams({ teamId })}`,
+      { timeoutMs: 30000 }
+    );
     return (res?.installations || []).map(toInstallation);
   },
-
-  startInstallation: async (): Promise<{ installUrl: string; expiresAt: string }> =>
-    http<{ installUrl: string; expiresAt: string }>('/api/github/installations/start', { method: 'POST' }),
+  // teamId goes along so the server can tie the install to the team (ignored if it doesn't need it)
+  startInstallation: async (teamId: string): Promise<{ installUrl: string; expiresAt: string }> =>
+    http<{ installUrl: string; expiresAt: string }>(
+      `/api/github/installations/start?${new URLSearchParams({ teamId })}`,
+      { method: 'POST' }
+    ),
+  // 204 No Content on success
+  completeInstallation: async (state: string, installationId: string): Promise<void> => {
+    await http<unknown>('/api/github/installations/complete', {
+      method: 'POST',
+      json: { state, installationId: Number(installationId) },
+    });
+  },
 };

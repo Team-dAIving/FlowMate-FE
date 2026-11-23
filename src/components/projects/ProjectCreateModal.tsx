@@ -24,6 +24,7 @@ import { isFeatureAvailable } from '../../services/features';
 import { NotConnected } from '../ui/NotConnected';
 import { normalizeSkills } from '../../utils/positions';
 import { REPOS_MAX, REPO_ROLES, isGitHubInstallUrl, repoFromInstallation } from '../../utils/github';
+import { rememberInstallTeam } from '../../services/githubInstall';
 
 export interface ProjectCreateModalProps {
   isOpen: boolean;
@@ -138,8 +139,10 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   useEffect(() => {
     if (!isOpen || teams.some((t) => t.id === selectedTeamId)) return;
     if (isPersonal && personalAllowed) return;
+    // Teams not loaded yet (e.g. right after the GitHub install redirect): keep the requested team
+    if (teams.length === 0 && defaultTeamId && selectedTeamId === defaultTeamId) return;
     setSelectedTeamId(teams[0]?.id ?? (personalAllowed ? PERSONAL : ''));
-  }, [isOpen, teams, selectedTeamId, isPersonal, personalAllowed]);
+  }, [isOpen, teams, selectedTeamId, isPersonal, personalAllowed, defaultTeamId]);
 
   const selectedTeam = isPersonal ? undefined : teams.find((t) => t.id === selectedTeamId);
   const members = buildMembers(currentUser, selectedTeam?.members ?? [], excluded, roles);
@@ -148,30 +151,38 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   // Leader: the chosen one if still a member, else me
   const effectiveLeaderId = members.some((m) => m.user.id === leaderId) ? leaderId : currentUser?.id || '';
 
-  // ---- GitHub App installations: orgs/accounts + their repos ----
+  // ---- GitHub App installations of the selected team: orgs/accounts + their repos ----
+  const githubTeamId = selectedTeam?.id;
+  const loadSeq = useRef(0);
   const loadInstallations = useCallback(async () => {
-    const seq = formSeq.current;
+    const mine = ++loadSeq.current; // a slower answer for a previous team is dropped
+    if (!githubTeamId) return;
     setGithub((prev) => (prev.status === 'ready' ? prev : { status: 'loading' }));
     try {
-      const list = await api.getGitHubInstallations();
-      if (seq !== formSeq.current) return;
+      const list = await api.getGitHubInstallations(githubTeamId);
+      if (mine !== loadSeq.current) return;
       setGithub({ status: 'ready', installations: list });
       if (list.length > 0) setWaitingForInstall(false);
       setInstallationId((cur) => (list.some((i) => i.installationId === cur) ? cur : list[0]?.installationId || ''));
     } catch (err) {
-      if (seq !== formSeq.current) return;
+      if (mine !== loadSeq.current) return;
       console.error('Failed to load GitHub installations:', err);
       setGithub({ status: 'error', message: errorText(err, 'GitHub 연결 정보를 불러오지 못했습니다.') });
     }
-  }, []);
+  }, [githubTeamId]);
 
+  // On open and whenever the team changes: that team's installations (its repos start over)
   useEffect(() => {
     if (!isOpen || !isFeatureAvailable('githubApp')) return;
     setGithub({ status: 'loading' });
+    setInstallationId('');
+    setRepoRows([]);
+    setWaitingForInstall(false);
+    setConnectError('');
     void loadInstallations();
   }, [isOpen, loadInstallations]);
 
-  // After sending the user to GitHub to install the app, re-check when they come back to this window
+  // Desktop: the install happens in the system browser; re-check when the user comes back to the app
   useEffect(() => {
     if (!isOpen || !waitingForInstall) return;
     const onFocus = () => void loadInstallations();
@@ -180,15 +191,21 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   }, [isOpen, waitingForInstall, loadInstallations]);
 
   const connectGitHub = async () => {
-    if (isConnecting) return;
+    if (isConnecting || !githubTeamId) return;
     setIsConnecting(true);
     setConnectError('');
     try {
-      const url = await api.startGitHubInstallation();
+      const url = await api.startGitHubInstallation(githubTeamId);
       if (!isGitHubInstallUrl(url)) throw new Error('서버가 올바르지 않은 GitHub 설치 주소를 보냈습니다.');
-      // Desktop: window.open goes to the system browser (main process). Web: a new tab.
-      window.open(url, '_blank', 'noopener,noreferrer');
-      setWaitingForInstall(true);
+      if (window.electronAPI?.isElectron) {
+        // Desktop: window.open goes to the system browser (main process)
+        window.open(url, '_blank', 'noopener,noreferrer');
+        setWaitingForInstall(true);
+      } else {
+        // Web: same tab, so GitHub's redirect to /github/install/callback finds this tab's login and team
+        rememberInstallTeam(githubTeamId);
+        window.location.assign(url);
+      }
     } catch (err) {
       console.error(err);
       setConnectError(errorText(err, 'GitHub 연결을 시작하지 못했습니다.'));
@@ -521,6 +538,8 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
 
           {!isFeatureAvailable('githubApp') ? (
             <NotConnected feature="GitHub 연결" />
+          ) : !githubTeamId ? (
+            <p className="text-[11px] text-text-muted">소속 팀을 고르면 그 팀에 연결된 GitHub 계정·저장소를 불러옵니다.</p>
           ) : github.status === 'loading' ? (
             <p className="text-[11px] text-text-muted flex items-center gap-1.5">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -536,9 +555,14 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
           ) : installations.length === 0 ? (
             <div className="space-y-2">
               <p className="text-[11px] text-text-secondary">
-                GitHub가 아직 연결되지 않았습니다. FlowMate GitHub 앱을 Organization(또는 내 계정)에 설치하면
+                이 팀에 연결된 GitHub가 아직 없습니다. FlowMate GitHub 앱을 Organization(또는 내 계정)에 설치하면
                 저장소를 고를 수 있고, 기존 GitHub 이슈를 프로젝트 업무로 가져옵니다.
               </p>
+              {!window.electronAPI?.isElectron && (
+                <p className="text-[11px] text-text-muted">
+                  설치하러 GitHub로 이동했다가 이 화면으로 돌아옵니다. 지금 입력한 내용은 남지 않습니다.
+                </p>
+              )}
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void connectGitHub()} isLoading={isConnecting} className="gap-1.5">
                   <Github className="h-3.5 w-3.5" />

@@ -508,9 +508,8 @@ export const projectTaskApi = {
         })),
         additionalTechStack: input.additionalTechStack,
         repositories: input.repositories.map((r) => {
-          if (!r.installationId || !r.githubRepositoryId) throw new Error(`${r.fullName}은(는) GitHub 앱에서 고른 레포가 아닙니다.`);
+          if (!r.githubRepositoryId) throw new Error(`${r.fullName}은(는) GitHub 앱에서 고른 레포가 아닙니다.`);
           return {
-            installationId: toId(r.installationId),
             githubRepositoryId: toId(r.githubRepositoryId),
             role: r.role.toLowerCase(),
           };

@@ -411,8 +411,8 @@ export const api = {
 
   // GitHub organizations the user can pick at project creation.
   // No backend endpoint yet: real mode returns [] and the form falls back to typing the org name.
-  getGitHubInstallations: async (): Promise<GitHubInstallation[]> => {
-    if (USE_REAL_API) return githubApi.getInstallations();
+  getGitHubInstallations: async (teamId: string): Promise<GitHubInstallation[]> => {
+    if (USE_REAL_API) return githubApi.getInstallations(teamId);
     return MOCK_GITHUB_ORGS.map((org, i) => ({
       installationId: String(1000 + i),
       accountLogin: org,
@@ -425,9 +425,14 @@ export const api = {
   },
 
   /** GitHub App install link (POST /api/github/installations/start). */
-  startGitHubInstallation: async (): Promise<string> => {
-    if (USE_REAL_API) return (await githubApi.startInstallation()).installUrl;
+  startGitHubInstallation: async (teamId: string): Promise<string> => {
+    if (USE_REAL_API) return (await githubApi.startInstallation(teamId)).installUrl;
     return 'https://github.com/apps/flowmate/installations/new';
+  },
+
+  /** Saves the installation GitHub redirected back with (POST /api/github/installations/complete). */
+  completeGitHubInstallation: async (state: string, installationId: string): Promise<void> => {
+    if (USE_REAL_API) await githubApi.completeInstallation(state, installationId);
   },
 
   // ---- AI issue drafts ----

@@ -8,6 +8,8 @@
 // gone when the tab closes, never in localStorage. (Moving the web session to an HttpOnly cookie
 // on the backend would remove even that; see the note at the end of this file.)
 
+import { INSTALL_CALLBACK_PATH } from './githubInstall';
+
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
 
 export const WEB_CALLBACK_PATH = '/oauth/callback';
@@ -77,6 +79,8 @@ export type WebCallback =
  */
 export function consumeWebCallback(): WebCallback {
   const { pathname, search } = window.location;
+  // The GitHub App install redirect also carries state (and maybe code): it is not a login callback
+  if (pathname === INSTALL_CALLBACK_PATH) return { kind: 'none' };
   const params = new URLSearchParams(search);
   const isCallback = pathname === WEB_CALLBACK_PATH || params.has('code') || params.has('error');
   if (!isCallback) return { kind: 'none' };

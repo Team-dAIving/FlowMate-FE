@@ -25,6 +25,7 @@ import { useTaskStore } from '../../store/useTaskStore';
 import { useMeetingStore } from '../../store/useMeetingStore';
 import { useTeamStore } from '../../store/useTeamStore';
 import { useUIStore } from '../../store/useUIStore';
+import { finishGitHubInstall } from '../../services/githubInstall';
 
 export const AppLayout: React.FC = () => {
   const { currentView, initialize } = useWorkspaceStore();
@@ -53,6 +54,11 @@ export const AppLayout: React.FC = () => {
     fetchTeams();
     fetchNotifications();
   }, [initialize, fetchTasks, fetchMeetings, fetchTeams, fetchNotifications]);
+
+  // Back from installing the GitHub App: save it, then reopen the project form for that team
+  useEffect(() => {
+    void finishGitHubInstall((teamId) => setCreateProjectModalOpen(true, teamId));
+  }, [setCreateProjectModalOpen]);
 
   const renderMainView = () => {
     switch (currentView) {
