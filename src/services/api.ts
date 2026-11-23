@@ -844,6 +844,18 @@ export const api = {
     return analyzedMeeting;
   },
 
+  // Mock proposal edits remain separate from approval, just like the server API.
+  updateMockSuggestion: async (meetingId: string, actionItemId: string, data: Partial<ActionItem>): Promise<void> => {
+    if (USE_REAL_API) notConnected();
+    const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
+    const meeting = meetings.find((item) => item.id === meetingId);
+    const index = meeting?.actionItems?.findIndex((item) => item.id === actionItemId) ?? -1;
+    if (!meeting || !meeting.actionItems || index < 0) throw new Error('업무 제안을 찾을 수 없습니다.');
+    if (meeting.actionItems[index].approvalStatus !== 'PENDING') throw new Error('이미 처리된 업무 제안입니다.');
+    meeting.actionItems[index] = { ...meeting.actionItems[index], ...data };
+    setStored(STORAGE_KEYS.MEETINGS, meetings);
+  },
+
   // 7. Approve AI Action Item
   approveActionItem: async (
     meetingId: string,
@@ -863,13 +875,25 @@ export const api = {
     if (actionItemIndex === -1) throw new Error('Action item not found');
 
     const currentAI = meeting.actionItems![actionItemIndex];
+    if (currentAI.approvalStatus !== 'PENDING') throw new Error('이미 처리된 업무 제안입니다.');
     const mergedAI = { ...currentAI, ...options.customData };
 
     // Find assignee User
-    const assignee = teamMembers.find((u) => u.id === mergedAI.assigneeId) || currentUser;
+    const project = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects).find((p) => p.id === meeting.projectId);
+    const assignee = project?.members.find((member) => member.user.id === mergedAI.assigneeId)?.user;
 
     // 1) Create FlowMate Task
-    const createdTask = await api.createTask({
+    const targetTask = mergedAI.actionType === 'UPDATE'
+      ? (await api.getTasks(meeting.projectId)).find((task) => task.id === mergedAI.targetTaskId)
+      : undefined;
+    if (mergedAI.actionType === 'UPDATE' && !targetTask) throw new Error('수정할 프로젝트 업무를 찾을 수 없습니다.');
+    const createdTask = targetTask ? await api.updateTask(targetTask.id, {
+      title: mergedAI.title,
+      description: mergedAI.description,
+      assignee,
+      priority: mergedAI.priority,
+      dueDate: mergedAI.dueDate,
+    }) : await api.createTask({
       projectId: meeting.projectId,
       title: mergedAI.title,
       description: `${mergedAI.description}\n\n> [회의록 발췌]: "${mergedAI.sourceQuote || '회의 결정 사항'}"\n(회의: ${meeting.title})`,
@@ -883,7 +907,7 @@ export const api = {
     let issueUrl: string | undefined = undefined;
 
     // 2) Optional GitHub Issue creation
-    if (options.createGitHubIssue) {
+    if (options.createGitHubIssue && !targetTask) {
       try {
         const syncedTask = await api.createGitHubIssue(createdTask.id);
         syncStatus = 'SUCCEEDED';

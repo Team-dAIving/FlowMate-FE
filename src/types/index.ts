@@ -243,6 +243,8 @@ export type GitHubSyncStatus = 'NONE' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
 export interface ActionItem {
   id: string;
   meetingId: string;
+  actionType?: 'CREATE' | 'UPDATE' | 'NEEDS_REVIEW';
+  targetTaskId?: string;
   title: string;
   description: string;
   assigneeId?: string;

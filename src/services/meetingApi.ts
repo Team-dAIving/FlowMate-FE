@@ -50,7 +50,11 @@ interface TranscriptSegmentDto {
 
 interface SuggestedTaskDto {
   suggestionId: number;
+  suggestionType: string;
+  targetTaskId: number | null;
   proposedData: {
+    actionType?: string | null;
+    targetTaskId?: number | null;
     title?: string | null;
     description?: string | null;
     assigneeId?: number | null;
@@ -124,6 +128,13 @@ const toApprovalStatus = (value: string | null): ApprovalStatus => {
 const toActionItem = (suggestion: SuggestedTaskDto, meetingId: string): ActionItem => ({
   id: String(suggestion.suggestionId),
   meetingId,
+  actionType: suggestion.proposedData?.actionType === 'CREATE' ? 'CREATE'
+    : suggestion.proposedData?.actionType === 'UPDATE' ? 'UPDATE'
+      : suggestion.proposedData?.actionType === 'NEEDS_REVIEW' ? 'NEEDS_REVIEW'
+        : suggestion.suggestionType === 'UPDATE' ? 'UPDATE'
+          : suggestion.suggestionType === 'NEEDS_REVIEW' ? 'NEEDS_REVIEW' : 'CREATE',
+  targetTaskId: suggestion.proposedData?.targetTaskId != null ? String(suggestion.proposedData.targetTaskId)
+    : suggestion.targetTaskId != null ? String(suggestion.targetTaskId) : undefined,
   title: suggestion.proposedData?.title || '제목 없는 업무 제안',
   description: suggestion.proposedData?.description || '',
   assigneeId:
@@ -213,6 +224,19 @@ async function putRecording(upload: RecordingUploadDto, blob: Blob): Promise<voi
 }
 
 export const meetingApi = {
+  updateSuggestion: async (meetingId: string, suggestionId: string, input: {
+    actionType: 'CREATE' | 'UPDATE'; targetTaskId: number | null; title: string;
+    description: string; assigneeId: number; dueDate: string; priority: TaskPriority;
+  }): Promise<void> => {
+    await http(`/api/meetings/${encodeURIComponent(meetingId)}/task-suggestions/${encodeURIComponent(suggestionId)}`, {
+      method: 'PUT', json: input,
+    });
+  },
+  approveSuggestion: async (meetingId: string, suggestionId: string, createGithubIssue: boolean, githubRepositoryId: number | null) =>
+    http<{ githubSyncStatus: string | null; githubError: string | null; githubIssueUrl: string | null }>(
+      `/api/meetings/${encodeURIComponent(meetingId)}/task-suggestions/${encodeURIComponent(suggestionId)}/approve`,
+      { method: 'POST', json: { createGithubIssue, githubRepositoryId, labels: [] } }
+    ),
   create: async (projectId: string, title: string, projectName?: string): Promise<Meeting> => {
     const numericProjectId = Number(projectId);
     if (!Number.isSafeInteger(numericProjectId) || numericProjectId <= 0) {

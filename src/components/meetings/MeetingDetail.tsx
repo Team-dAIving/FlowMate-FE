@@ -30,7 +30,10 @@ import { Card } from '../ui/Card';
 import { Avatar } from '../ui/Avatar';
 import { Input, Textarea } from '../ui/Input';
 import { getProjectMemberUsers } from '../../utils/projectMembers';
-import { ActionItem, TaskPriority } from '../../types';
+import { ActionItem, TaskPriority, Task, ProjectRepository, User } from '../../types';
+import { meetingApi } from '../../services/meetingApi';
+import { projectTaskApi } from '../../services/projectTaskApi';
+import { api } from '../../services/api';
 import { formatDate, formatDuration } from '../../utils/formatters';
 import { daysFromTodayISO } from '../../utils/dates';
 import { safeHref } from '../../utils/github';
@@ -53,14 +56,55 @@ export const MeetingDetail: React.FC = () => {
   const [editAssigneeId, setEditAssigneeId] = useState('');
   const [editDueDate, setEditDueDate] = useState('');
   const [editPriority, setEditPriority] = useState<TaskPriority>('MEDIUM');
-  const [createGitHubIssueOnApprove, setCreateGitHubIssueOnApprove] = useState(true);
+  const [createGitHubIssueOnApprove, setCreateGitHubIssueOnApprove] = useState(!USE_REAL_API);
   const [busyItemId, setBusyItemId] = useState<string | null>(null); // approve/reject in flight
   const [actionError, setActionError] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
+  const [editActionType, setEditActionType] = useState<'CREATE' | 'UPDATE'>('CREATE');
+  const [editTargetId, setEditTargetId] = useState('');
+  const [projectTasks, setProjectTasks] = useState<Task[]>([]);
+  const [repositories, setRepositories] = useState<ProjectRepository[]>([]);
+  const [repositoryId, setRepositoryId] = useState('');
+  const [members, setMembers] = useState<User[]>([]);
+  const [projectDates, setProjectDates] = useState({ startDate: '', endDate: '' });
+  const projectId = meeting?.projectId;
+
+  useEffect(() => {
+    if (!projectId) return;
+    let active = true;
+    setProjectTasks([]); setRepositories([]); setMembers([]); setRepositoryId('');
+    setProjectDates({ startDate: '', endDate: '' });
+    if (!USE_REAL_API) {
+      const project = projects.find((item) => item.id === projectId);
+      setProjectDates({ startDate: project?.startDate || '', endDate: project?.endDate || '' });
+      void api.getTasks(projectId).then((tasks) => { if (active) setProjectTasks(tasks); }).catch(() => {
+        if (active) setActionError('프로젝트 업무를 불러오지 못했습니다.');
+      });
+      return () => { active = false; };
+    }
+    void Promise.allSettled([
+      projectTaskApi.getProjectTasks(projectId),
+      projectTaskApi.getProjectRepositories(projectId),
+      projectTaskApi.getProjectMembers(projectId),
+      projectTaskApi.getProjectDates(projectId),
+    ] as const).then(([tasks, repos, projectMembers, dates]) => {
+      if (!active) return;
+      if (tasks.status === 'fulfilled') setProjectTasks(tasks.value);
+      if (repos.status === 'fulfilled') setRepositories(repos.value);
+      if (projectMembers.status === 'fulfilled') setMembers(projectMembers.value.map((member) => member.user));
+      if (dates.status === 'fulfilled') setProjectDates(dates.value);
+      if ([tasks, repos, projectMembers, dates].some((result) => result.status === 'rejected')) {
+        setActionError('프로젝트 정보를 일부 불러오지 못했습니다. 화면을 다시 열어주세요.');
+      }
+    });
+    return () => { active = false; };
+  }, [projectId, projects]);
 
   // This view stays mounted across meetings: drop an open edit/error from the previous one
   useEffect(() => {
     setEditingId(null);
     setActionError('');
+    setActionNotice('');
   }, [selectedMeetingId]);
 
   // The upload completion response is normally STT_QUEUED. Refresh the detail until the
@@ -88,7 +132,7 @@ export const MeetingDetail: React.FC = () => {
   }
 
   // Action item 담당자는 회의가 속한 프로젝트의 멤버로 한정
-  const projectMembers = getProjectMemberUsers(projects.find((p) => p.id === meeting.projectId), currentUser);
+  const projectMembers = USE_REAL_API ? members : getProjectMemberUsers(projects.find((p) => p.id === meeting.projectId), currentUser);
 
   const actionItems = meeting.actionItems || [];
   const pendingItems = actionItems.filter((a) => a.approvalStatus === 'PENDING');
@@ -99,14 +143,48 @@ export const MeetingDetail: React.FC = () => {
     setEditTitle(item.title);
     setEditDesc(item.description);
     setEditAssigneeId(
-      projectMembers.some((m) => m.id === item.assigneeId) ? item.assigneeId! : currentUser?.id || projectMembers[0]?.id || ''
+      projectMembers.some((m) => m.id === item.assigneeId) ? item.assigneeId! : projectMembers[0]?.id || ''
     );
     setEditDueDate(item.dueDate || daysFromTodayISO(7));
     setEditPriority(item.priority);
+    setEditActionType(item.actionType === 'UPDATE' ? 'UPDATE' : 'CREATE');
+    setEditTargetId(item.targetTaskId || '');
+    setActionError('');
   };
 
   const cancelEdit = () => {
     setEditingId(null);
+  };
+
+  const handleSave = async (item: ActionItem) => {
+    if (busyItemId) return;
+    if (!editTitle.trim() || editTitle.trim().length > 256) { setActionError('업무 제목을 1~256자로 입력해주세요.'); return; }
+    if (!editAssigneeId || !projectMembers.some((member) => member.id === editAssigneeId)) { setActionError('프로젝트 담당자를 선택해주세요.'); return; }
+    if (!editDueDate) { setActionError('마감일을 입력해주세요.'); return; }
+    if ((projectDates.startDate && editDueDate < projectDates.startDate) || (projectDates.endDate && editDueDate > projectDates.endDate)) {
+      setActionError('마감일은 프로젝트 기간 안이어야 합니다.'); return;
+    }
+    if (editActionType === 'UPDATE' && !projectTasks.some((task) => task.id === editTargetId)) { setActionError('수정할 기존 업무를 선택해주세요.'); return; }
+    setBusyItemId(item.id); setActionError(''); setActionNotice('');
+    try {
+      if (USE_REAL_API) {
+        await meetingApi.updateSuggestion(meeting.id, item.id, {
+          actionType: editActionType, targetTaskId: editActionType === 'UPDATE' ? Number(editTargetId) : null,
+          title: editTitle.trim(), description: editDesc, assigneeId: Number(editAssigneeId), dueDate: editDueDate, priority: editPriority,
+        });
+      } else {
+        await api.updateMockSuggestion(meeting.id, item.id, {
+          actionType: editActionType, targetTaskId: editActionType === 'UPDATE' ? editTargetId : undefined,
+          title: editTitle.trim(), description: editDesc, assigneeId: editAssigneeId,
+          assigneeName: projectMembers.find((member) => member.id === editAssigneeId)?.name,
+          dueDate: editDueDate, priority: editPriority,
+        });
+      }
+      setEditingId(null);
+      await fetchMeetingById(meeting.id);
+      setActionNotice('업무 제안을 저장했습니다. 내용을 확인한 뒤 승인해주세요.');
+    } catch (err) { setActionError(err instanceof Error ? err.message : '저장에 실패했습니다.'); }
+    finally { setBusyItemId(null); }
   };
 
   const handleApprove = async (item: ActionItem) => {
@@ -114,7 +192,23 @@ export const MeetingDetail: React.FC = () => {
     if (busyItemId) return;
     setBusyItemId(item.id);
     setActionError('');
+    setActionNotice('');
     try {
+      if (USE_REAL_API) {
+        if (item.actionType === 'NEEDS_REVIEW') {
+          startEdit(item);
+          setActionError('업무 내용을 확인하고 저장한 뒤 승인해주세요.');
+          return;
+        }
+        const createIssue = item.actionType !== 'UPDATE' && createGitHubIssueOnApprove;
+        if (createIssue && !repositoryId) { setActionError('GitHub Issue를 생성할 저장소를 선택해주세요.'); return; }
+        const result = await meetingApi.approveSuggestion(meeting.id, item.id, createIssue, createIssue ? Number(repositoryId) : null);
+        setActionNotice(result.githubSyncStatus === 'FAILED'
+          ? `업무는 승인됐지만 GitHub Issue 생성에 실패했습니다. ${result.githubError || ''}`
+          : '업무 제안을 승인했습니다.');
+        await Promise.all([fetchMeetingById(meeting.id), fetchTasks()]);
+        return;
+      }
       await approveActionItem(meeting.id, item.id, {
         createGitHubIssue: createGitHubIssueOnApprove,
         customData: editingId === item.id ? {
@@ -128,6 +222,7 @@ export const MeetingDetail: React.FC = () => {
       });
       setEditingId(null);
       await fetchTasks();
+      setProjectTasks(await api.getTasks(meeting.projectId));
     } catch (err) {
       console.error(err);
       setActionError(err instanceof Error && err.message ? err.message : '승인에 실패했습니다. 다시 시도해주세요.');
@@ -236,6 +331,7 @@ export const MeetingDetail: React.FC = () => {
               {actionError}
             </p>
           )}
+          {actionNotice && <p role="status" className="text-xs text-primary">{actionNotice}</p>}
           {/* Guiding principle alert banner */}
           <div className="p-3.5 rounded-lg border border-primary/20 bg-primary-light/40 flex items-start justify-between gap-3 text-xs">
             <div className="flex items-start gap-2.5">
@@ -249,7 +345,7 @@ export const MeetingDetail: React.FC = () => {
               </div>
             </div>
 
-            {!USE_REAL_API && <label className="flex items-center gap-1.5 shrink-0 font-medium text-text-primary cursor-pointer select-none">
+            <label className="flex items-center gap-1.5 shrink-0 font-medium text-text-primary cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={createGitHubIssueOnApprove}
@@ -260,8 +356,9 @@ export const MeetingDetail: React.FC = () => {
                 <GitBranch className="h-3 w-3 text-primary" />
                 승인 시 GitHub Issue 동시 생성
               </span>
-            </label>}
+            </label>
           </div>
+          {USE_REAL_API && createGitHubIssueOnApprove && <div className="text-xs space-y-1"><label htmlFor="meeting-repository">GitHub 저장소 (신규 업무에만 적용)</label><select id="meeting-repository" value={repositoryId} onChange={(e) => setRepositoryId(e.target.value)} className="w-full h-8 rounded-md border border-border bg-surface px-2 text-xs"><option value="">저장소 선택</option>{repositories.map((repo) => <option key={repo.githubRepositoryId} value={repo.githubRepositoryId}>{repo.fullName}</option>)}</select></div>}
 
           {/* Action Items List */}
           <div className="space-y-4">
@@ -296,7 +393,7 @@ export const MeetingDetail: React.FC = () => {
 
                       {/* Header action buttons */}
                       <div className="flex items-center gap-1.5">
-                        {!USE_REAL_API && isPending && !isEditing && (
+                        {isPending && !isEditing && (
                           <button
                             onClick={() => startEdit(item)}
                             className="p-1 text-text-muted hover:text-text-primary rounded hover:bg-surface-hover transition-colors"
@@ -321,9 +418,42 @@ export const MeetingDetail: React.FC = () => {
                     {/* Content: Edit Mode vs View Mode */}
                     {isEditing ? (
                       <div className="space-y-3 pt-1">
+                        <div className="flex flex-wrap gap-3">
+                          <div className="w-full sm:w-48">
+                            <label htmlFor={`action-type-${item.id}`} className="block text-xs font-medium text-text-secondary mb-1.5">
+                              업무 처리 방식
+                            </label>
+                            <select
+                              id={`action-type-${item.id}`}
+                              value={editActionType}
+                              onChange={(e) => setEditActionType(e.target.value as 'CREATE' | 'UPDATE')}
+                              className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                            >
+                              <option value="CREATE">신규 업무 생성</option>
+                              <option value="UPDATE">기존 업무 수정</option>
+                            </select>
+                          </div>
+                          {editActionType === 'UPDATE' && (
+                            <div className="w-full sm:w-64">
+                              <label htmlFor={`target-task-${item.id}`} className="block text-xs font-medium text-text-secondary mb-1.5">
+                                수정할 업무
+                              </label>
+                              <select
+                                id={`target-task-${item.id}`}
+                                value={editTargetId}
+                                onChange={(e) => setEditTargetId(e.target.value)}
+                                className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                              >
+                                <option value="">업무 선택</option>
+                                {projectTasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}
+                              </select>
+                            </div>
+                          )}
+                        </div>
                         <Input
                           label="업무 제목"
                           value={editTitle}
+                          maxLength={256}
                           onChange={(e) => setEditTitle(e.target.value)}
                         />
                         <Textarea
@@ -369,6 +499,8 @@ export const MeetingDetail: React.FC = () => {
 
                           <Input
                             type="date"
+                            min={projectDates.startDate || undefined}
+                            max={projectDates.endDate || undefined}
                             label="마감일"
                             value={editDueDate}
                             onChange={(e) => setEditDueDate(e.target.value)}
@@ -379,8 +511,8 @@ export const MeetingDetail: React.FC = () => {
                           <Button size="sm" variant="outline" onClick={cancelEdit}>
                             취소
                           </Button>
-                          <Button size="sm" onClick={() => handleApprove(item)} isLoading={busyItemId === item.id} disabled={busyItemId !== null}>
-                            저장 및 승인
+                          <Button size="sm" onClick={() => handleSave(item)} isLoading={busyItemId === item.id} disabled={busyItemId !== null}>
+                            제안 저장
                           </Button>
                         </div>
                       </div>
@@ -418,7 +550,7 @@ export const MeetingDetail: React.FC = () => {
                             {isApproved ? (
                               <div className="flex items-center gap-2 text-emerald-600 font-medium text-xs">
                                 <CheckCircle2 className="h-4 w-4" />
-                                <span>FlowMate 업무 생성 완료</span>
+                                <span>FlowMate 업무 {item.actionType === 'UPDATE' ? '수정' : '생성'} 완료</span>
                                 {item.githubIssueUrl && (
                                   <a
                                     href={safeHref(item.githubIssueUrl)}
@@ -433,9 +565,6 @@ export const MeetingDetail: React.FC = () => {
                                 )}
                               </div>
                             ) : isPending ? (
-                              USE_REAL_API ? (
-                                <span className="text-xs text-amber-600">검토 대기</span>
-                              ) : (
                                 <div className="flex items-center gap-2">
                                   <Button
                                     size="sm"
@@ -449,7 +578,6 @@ export const MeetingDetail: React.FC = () => {
                                     <span>업무 승인 및 생성</span>
                                   </Button>
                                 </div>
-                              )
                             ) : (
                               <span className="text-xs text-red-500">거절된 업무</span>
                             )}
