@@ -33,7 +33,7 @@ export const LoginPage: React.FC = () => {
         </Button>
         {isLoggingIn && isDesktop && (
           <p className="text-[11px] text-text-muted">
-            브라우저에서 GitHub 로그인을 완료해주세요. 로그인 후 브라우저에 "FlowMate 앱으로 돌아가기"가 보이면 눌러주세요.
+            브라우저에서 GitHub 로그인을 완료해주세요. 끝나면 FlowMate 앱으로 자동으로 돌아옵니다.
           </p>
         )}
         {loginError && (
