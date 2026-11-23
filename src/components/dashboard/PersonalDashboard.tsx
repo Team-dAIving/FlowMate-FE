@@ -7,10 +7,10 @@ import {
   ArrowRight,
   Plus,
   GitBranch,
-  Video,
   Sparkles,
   Copy,
   Check,
+  Mic,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTaskStore } from '../../store/useTaskStore';
@@ -95,7 +95,7 @@ export const PersonalDashboard: React.FC = () => {
             onClick={() => setRecordMeetingModalOpen(true)}
             className="text-xs"
           >
-            <Video className="h-3.5 w-3.5 text-primary" />
+            <Mic className="h-3.5 w-3.5 text-primary" />
             <span>회의 녹음</span>
           </Button>
           <Button

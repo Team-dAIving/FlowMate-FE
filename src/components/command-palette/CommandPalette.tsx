@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Search,
   Plus,
-  Video,
   FolderKanban,
   CheckSquare,
   Users2,
@@ -12,6 +11,7 @@ import {
   GitBranch,
   ArrowRight,
   FileSearch,
+  Mic,
 } from 'lucide-react';
 import { useUIStore } from '../../store/useUIStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
@@ -101,7 +101,7 @@ export const CommandPalette: React.FC = () => {
       id: 'record-meeting',
       label: 'Start Meeting Recording (회의 녹음 시작)',
       category: 'Actions',
-      icon: <Video className="h-4 w-4 text-red-500" />,
+      icon: <Mic className="h-4 w-4 text-red-500" />,
       action: () => {
         setCommandPaletteOpen(false);
         setRecordMeetingModalOpen(true);

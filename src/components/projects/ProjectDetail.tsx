@@ -21,7 +21,6 @@ import {
   ListTodo,
   LayoutGrid,
   CalendarDays,
-  Video,
   Users2,
   ArrowLeft,
   Plus,
@@ -32,6 +31,7 @@ import {
   Crown,
   Sparkles,
   FileSearch,
+  Mic,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTaskStore } from '../../store/useTaskStore';
@@ -561,7 +561,7 @@ export const ProjectDetail: React.FC = () => {
               onClick={() => setRecordMeetingModalOpen(true)}
               className="text-xs gap-1"
             >
-              <Video className="h-3 w-3 text-red-500" />
+              <Mic className="h-3 w-3 text-red-500" />
               <span>새 회의 녹음</span>
             </Button>
           </div>
