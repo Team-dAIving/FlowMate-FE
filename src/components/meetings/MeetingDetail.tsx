@@ -236,8 +236,10 @@ export const MeetingDetail: React.FC = () => {
     if (!window.confirm('이 Action Item을 거절하시겠습니까?')) return;
     setBusyItemId(itemId);
     setActionError('');
+    setActionNotice('');
     try {
       await rejectActionItem(meeting.id, itemId);
+      setActionNotice('업무 제안을 거절했습니다.');
     } catch (err) {
       console.error(err);
       setActionError(err instanceof Error && err.message ? err.message : '거절에 실패했습니다. 다시 시도해주세요.');
@@ -403,11 +405,13 @@ export const MeetingDetail: React.FC = () => {
                           </button>
                         )}
 
-                        {!USE_REAL_API && isPending && (
+                        {isPending && !isEditing && (
                           <button
                             onClick={() => handleReject(item.id)}
+                            disabled={busyItemId !== null}
                             className="p-1 text-text-muted hover:text-status-danger rounded hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
-                            title="거절/삭제"
+                            title="업무 제안 거절"
+                            aria-label="업무 제안 거절"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>

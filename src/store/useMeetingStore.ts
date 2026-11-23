@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { Meeting, ActionItem } from '../types';
 import { api } from '../services/api';
+import { USE_REAL_API } from '../services/http';
+import { meetingApi } from '../services/meetingApi';
 
 interface MeetingState {
   meetings: Meeting[];
@@ -104,8 +106,18 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
   },
 
   rejectActionItem: async (meetingId, actionItemId) => {
-    await api.rejectActionItem(meetingId, actionItemId);
+    if (USE_REAL_API) await meetingApi.rejectSuggestion(meetingId, actionItemId);
+    else await api.rejectActionItem(meetingId, actionItemId);
+    const markRejected = (meeting: Meeting): Meeting => meeting.id !== meetingId ? meeting : {
+      ...meeting,
+      actionItems: meeting.actionItems?.map((item) =>
+        item.id === actionItemId ? { ...item, approvalStatus: 'REJECTED' } : item
+      ),
+    };
+    set((state) => ({
+      meetings: state.meetings.map(markRejected),
+      currentMeeting: state.currentMeeting ? markRejected(state.currentMeeting) : null,
+    }));
     await get().fetchMeetingById(meetingId);
-    await get().fetchMeetings();
   },
 }));

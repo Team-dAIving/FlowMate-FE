@@ -237,6 +237,11 @@ export const meetingApi = {
       `/api/meetings/${encodeURIComponent(meetingId)}/task-suggestions/${encodeURIComponent(suggestionId)}/approve`,
       { method: 'POST', json: { createGithubIssue, githubRepositoryId, labels: [] } }
     ),
+  rejectSuggestion: async (meetingId: string, suggestionId: string): Promise<void> => {
+    await http(`/api/meetings/${encodeURIComponent(meetingId)}/task-suggestions/${encodeURIComponent(suggestionId)}/reject`, {
+      method: 'POST',
+    });
+  },
   create: async (projectId: string, title: string, projectName?: string): Promise<Meeting> => {
     const numericProjectId = Number(projectId);
     if (!Number.isSafeInteger(numericProjectId) || numericProjectId <= 0) {
