@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   PieChart,
   Pie,
@@ -30,6 +30,7 @@ import {
   BarChart3,
   Layers,
   Crown,
+  Sparkles,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTaskStore } from '../../store/useTaskStore';
@@ -49,10 +50,13 @@ import { getProjectLeader } from '../../utils/projectLeader';
 import { api } from '../../services/api';
 import { ProjectIdeButtons } from './ProjectIdeButtons';
 import { MemberRoleEditor } from './MemberRoleEditor';
+import { AiIssueDraftsModal } from './AiIssueDraftsModal';
 import { MeetingStatusBadge } from '../meetings/MeetingStatusBadge';
-import { ProjectMember, ProjectPosition } from '../../types';
+import { ProjectDashboard, ProjectMember, ProjectPosition } from '../../types';
+import { USE_REAL_API } from '../../services/http';
+import { STATUS_META, TASK_STATUSES, countByStatus, isOpenStatus } from '../../utils/taskStatus';
 import { positionColor, positionLabel, projectTechStack } from '../../utils/positions';
-import { safeHref } from '../../utils/github';
+import { REPO_ROLES, repoRoleLabel, safeHref } from '../../utils/github';
 import { projectProgress } from '../../utils/progress';
 import { isFeatureAvailable } from '../../services/features';
 
@@ -68,16 +72,56 @@ export const ProjectDetail: React.FC = () => {
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [draftRole, setDraftRole] = useState<{ position?: ProjectPosition; skills: string[] }>({ skills: [] });
   const [memberSaveError, setMemberSaveError] = useState('');
+  const [aiDraftsOpen, setAiDraftsOpen] = useState(false);
   const [isSavingMember, setIsSavingMember] = useState(false);
   // This view stays mounted across projects, and the same person is in several projects:
   // close any open member editor when the project changes so a draft never lands in the wrong one.
   useEffect(() => {
     setEditingMemberId(null);
     setMemberSaveError('');
+    setAiDraftsOpen(false);
   }, [currentProjectId]);
 
   // No silent fallback to another project: it would show (and let you edit) the wrong team's work
   const project = projects.find((p) => p.id === currentProjectId);
+
+  // Overview numbers and member details come from the server (GET /api/projects/{id}, /members).
+  // Refetched when this project's tasks change (added, deleted, status changed).
+  const [dashboard, setDashboard] = useState<ProjectDashboard | null>(null);
+  const [memberDetails, setMemberDetails] = useState<ProjectMember[] | null>(null);
+  const taskKey = tasks
+    .filter((t) => t.projectId === project?.id)
+    .map((t) => `${t.id}:${t.status}:${t.assignee?.id ?? ''}`)
+    .join(',');
+  const projectRef = useRef(project);
+  projectRef.current = project;
+  useEffect(() => {
+    const p = projectRef.current;
+    setDashboard(null);
+    if (!p) return;
+    let alive = true;
+    api
+      .getProjectDashboard(p)
+      .then((d) => alive && setDashboard(d))
+      .catch((err) => console.error('Failed to load the project dashboard:', err));
+    return () => {
+      alive = false;
+    };
+  }, [project?.id, taskKey]);
+  useEffect(() => {
+    const p = projectRef.current;
+    setMemberDetails(null);
+    if (!p) return;
+    let alive = true;
+    api
+      .getProjectMembers(p)
+      .then((m) => alive && setMemberDetails(m))
+      .catch((err) => console.error('Failed to load project members:', err));
+    return () => {
+      alive = false;
+    };
+  }, [project?.id, project?.members.length]);
+
   if (!project) {
     return (
       <div className="p-12 text-center space-y-3">
@@ -139,45 +183,40 @@ export const ProjectDetail: React.FC = () => {
     }
   };
 
-  // Task Status Distribution for this specific project
-  const statusCounts = {
-    TODO: projectTasks.filter((t) => t.status === 'TODO').length,
-    IN_PROGRESS: projectTasks.filter((t) => t.status === 'IN_PROGRESS').length,
-    IN_REVIEW: projectTasks.filter((t) => t.status === 'IN_REVIEW').length,
-    DONE: projectTasks.filter((t) => t.status === 'DONE').length,
-  };
+  // Members with e-mail etc. from /members (real API); mock edits live on the project itself
+  const members = USE_REAL_API ? memberDetails ?? project.members : project.members;
 
-  const statusPieData = [
-    { name: 'TODO', value: statusCounts.TODO, color: '#94A3B8' },
-    { name: 'IN PROGRESS', value: statusCounts.IN_PROGRESS, color: '#3B82F6' },
-    { name: 'IN REVIEW', value: statusCounts.IN_REVIEW, color: '#F59E0B' },
-    { name: 'DONE', value: statusCounts.DONE, color: '#10B981' },
-  ];
+  // Until the dashboard arrives, show what the loaded tasks say
+  const statusCounts = dashboard?.statusCounts ?? countByStatus(projectTasks);
+  const statusPieData = TASK_STATUSES.map((s) => ({
+    name: STATUS_META[s].label,
+    value: statusCounts[s],
+    color: STATUS_META[s].color,
+  }));
 
-  // Project Member Workload (Active vs Done for this project)
-  const memberWorkloadData = project.members.map((member) => {
-    const memberTasks = projectTasks.filter((t) => t.assignee?.id === member.user.id);
-    const active = memberTasks.filter((t) => t.status !== 'DONE').length;
-    const done = memberTasks.filter((t) => t.status === 'DONE').length;
-    return {
-      name: member.user.name,
-      Active: active,
-      Done: done,
-    };
-  });
+  // Member workload (open vs done): the server's list includes members without tasks
+  const memberWorkloadData = dashboard
+    ? dashboard.workload.map((w) => ({ name: w.name, Active: w.active, Done: w.done }))
+    : project.members.map((member) => {
+        const memberTasks = projectTasks.filter((t) => t.assignee?.id === member.user.id);
+        return {
+          name: member.user.name,
+          Active: memberTasks.filter((t) => isOpenStatus(t.status)).length,
+          Done: memberTasks.filter((t) => t.status === 'DONE').length,
+        };
+      });
 
-  // Project Weekly Velocity
-  const projectTrendData = [
-    { day: '11.12', completed: 1, created: 2 },
-    { day: '11.13', completed: 2, created: 1 },
-    { day: '11.14', completed: 3, created: 3 },
-    { day: '11.15', completed: 4, created: 2 },
-    { day: '11.16', completed: 3, created: 1 },
-    { day: '11.17', completed: 5, created: 4 },
-    { day: '11.18', completed: statusCounts.DONE || 6, created: 2 },
-  ];
+  // Tasks completed per day, last 7 days (Seoul time on the server)
+  const projectTrendData = (dashboard?.velocity ?? []).map((v) => ({
+    day: v.date.slice(5).replace('-', '.'),
+    completed: v.completed,
+  }));
 
-  const calculatedProgress = projectProgress(project.id, projectTasks);
+  const calculatedProgress = dashboard ? dashboard.progressPercent : projectProgress(project.id, projectTasks);
+  const totalTaskCount = dashboard ? dashboard.totalTaskCount : projectTasks.length;
+  // The project list has no dates; the detail does
+  const startDate = dashboard?.startDate || project.startDate;
+  const endDate = dashboard?.endDate || project.endDate;
 
   const tabs = [
     { id: 'overview', label: 'Overview & Dashboard', icon: <BarChart3 className="h-3.5 w-3.5" /> },
@@ -230,9 +269,9 @@ export const ProjectDetail: React.FC = () => {
               <GitBranch className="h-3.5 w-3.5" />
               <span
                 className="text-[10px] font-sans font-semibold px-1 rounded text-white"
-                style={{ backgroundColor: positionColor(repo.position) }}
+                style={{ backgroundColor: REPO_ROLES.find((r) => r.id === repo.role)?.color ?? '#6B7280' }}
               >
-                {positionLabel(repo.position) ?? '공통'}
+                {repoRoleLabel(repo.role)}
               </span>
               <span>{repo.name}</span>
               <ExternalLink className="h-3 w-3" />
@@ -315,17 +354,17 @@ export const ProjectDetail: React.FC = () => {
               </div>
               <div className="flex items-center justify-between text-[11px] text-text-muted font-mono pt-1">
                 <span>완료: {statusCounts.DONE}건</span>
-                <span>총 업무: {projectTasks.length}건</span>
+                <span>총 업무: {totalTaskCount}건</span>
               </div>
 
               <div className="border-t border-border/60 pt-2 space-y-1.5 font-mono text-text-secondary text-[11px]">
                 <div className="flex items-center justify-between">
                   <span>시작일</span>
-                  <span className="text-text-primary">{formatDate(project.startDate)}</span>
+                  <span className="text-text-primary">{formatDate(startDate)}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span>종료 예정일</span>
-                  <span className="text-text-primary">{formatDate(project.endDate)}</span>
+                  <span className="text-text-primary">{formatDate(endDate)}</span>
                 </div>
               </div>
             </Card>
@@ -344,7 +383,7 @@ export const ProjectDetail: React.FC = () => {
                 <CardHeader>
                   <CardTitle className="text-xs flex items-center justify-between w-full">
                     <span>이슈 상태별 분포 (Status)</span>
-                    <span className="font-mono text-[11px] text-text-muted">총 {projectTasks.length}건</span>
+                    <span className="font-mono text-[11px] text-text-muted">총 {totalTaskCount}건</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col items-center justify-center pt-2">
@@ -482,8 +521,23 @@ export const ProjectDetail: React.FC = () => {
 
       {/* Tab 2: Issues (List View) */}
       {activeTab === 'issues' && (
-        <TaskListView tasks={projectTasks} onSelectTask={setSelectedTaskIdForDetail} />
+        <div className="space-y-3">
+          {isFeatureAvailable('aiIssueDrafts') && (
+            <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-primary/30 bg-primary/5">
+              <p className="text-[11px] text-text-secondary">
+                설계서와 팀원 구성을 바탕으로 AI가 업무 초안을 만들어 줍니다. 확인하고 고친 뒤 한 번에 등록하세요.
+              </p>
+              <Button size="sm" onClick={() => setAiDraftsOpen(true)} className="shrink-0 gap-1.5 text-xs">
+                <Sparkles className="h-3.5 w-3.5" />
+                AI 이슈 생성
+              </Button>
+            </div>
+          )}
+          <TaskListView tasks={projectTasks} onSelectTask={setSelectedTaskIdForDetail} />
+        </div>
       )}
+      <AiIssueDraftsModal isOpen={aiDraftsOpen} onClose={() => setAiDraftsOpen(false)} project={project} />
+
 
       {/* Tab 3: Board (Kanban) */}
       {activeTab === 'board' && (
@@ -543,7 +597,7 @@ export const ProjectDetail: React.FC = () => {
             <span>MEMBER · POSITION & STACK</span>
             <span>ROLE & ACCESS</span>
           </div>
-          {project.members.map((m) => (
+          {members.map((m) => (
             <div key={m.user.id} className="p-3 space-y-2">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3 min-w-0">

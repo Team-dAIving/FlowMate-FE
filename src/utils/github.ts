@@ -1,49 +1,26 @@
-import { Project, ProjectPosition, ProjectRepository } from '../types';
+import { GitHubInstallation, Project, ProjectPosition, ProjectRepository, RepoRole } from '../types';
 
-// GitHub naming rules: owner (user/org) 1-39 chars, alphanumeric or single hyphens, no leading/trailing hyphen.
-const OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
-// Repository: 1-100 of letters, digits, '.', '-', '_' (but not "." or "..")
-const REPO_RE = /^[A-Za-z0-9._-]{1,100}$/;
+export const REPOS_MAX = 20; // backend limit per project
 
-export const REPOS_MAX = 20;
+export const REPO_ROLES: { id: RepoRole; label: string; color: string; max?: number }[] = [
+  { id: 'COMMON', label: '공통', color: '#6B7280', max: 1 },
+  { id: 'BACKEND', label: '백엔드', color: '#2563EB' },
+  { id: 'FRONTEND', label: '프론트엔드', color: '#059669' },
+  { id: 'AI', label: 'AI', color: '#7C3AED' },
+];
 
-export const isValidGitHubOwner = (s: string) => OWNER_RE.test(s);
-const isValidRepoName = (s: string) => REPO_RE.test(s) && s !== '.' && s !== '..';
+export const repoRoleLabel = (r: RepoRole) => REPO_ROLES.find((x) => x.id === r)?.label ?? r;
 
-export type ParsedRepo = { ok: true; owner: string; name: string } | { ok: false; error: string };
+const ROLE_SET = new Set<string>(REPO_ROLES.map((r) => r.id));
+export const toRepoRole = (value: string | null | undefined): RepoRole => {
+  const v = (value || '').trim().toUpperCase();
+  return (ROLE_SET.has(v) ? v : 'COMMON') as RepoRole;
+};
 
-/**
- * Accepts "repo" (placed under `org`), "owner/repo", or a github.com URL (with or without .git).
- */
-export function parseRepoInput(raw: string, org?: string): ParsedRepo {
-  let s = raw.trim();
-  if (!s) return { ok: false, error: '레포지토리 이름을 입력해주세요.' };
-
-  const url = s.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+)\/([^/\s?#]+)\/?(?:[?#].*)?$/i);
-  if (url) s = `${url[1]}/${url[2]}`;
-  s = s.replace(/\.git$/i, '');
-
-  const parts = s.split('/');
-  let owner: string;
-  let name: string;
-  if (parts.length === 1) {
-    if (!org) return { ok: false, error: 'Organization을 고르거나 "owner/레포" 형식으로 입력해주세요.' };
-    owner = org;
-    name = parts[0];
-  } else if (parts.length === 2) {
-    [owner, name] = parts;
-  } else {
-    return { ok: false, error: '"레포" 또는 "owner/레포" 형식으로 입력해주세요.' };
-  }
-  if (!isValidGitHubOwner(owner)) return { ok: false, error: `"${owner}"은(는) 올바른 GitHub 계정/Organization 이름이 아닙니다.` };
-  if (!isValidRepoName(name)) return { ok: false, error: `"${name}"은(는) 올바른 레포지토리 이름이 아닙니다.` };
-  return { ok: true, owner, name };
-}
-
-export function makeRepository(owner: string, name: string, position?: ProjectPosition): ProjectRepository {
+export function makeRepository(owner: string, name: string, role: RepoRole = 'COMMON'): ProjectRepository {
   return {
     id: `${owner}/${name}`.toLowerCase(),
-    position,
+    role,
     owner,
     name,
     fullName: `${owner}/${name}`,
@@ -51,12 +28,36 @@ export function makeRepository(owner: string, name: string, position?: ProjectPo
   };
 }
 
-/** The repo for a given part of the project: that position's repo, else a shared one, else the first. */
+/** A repo picked from a GitHub App installation, tagged with the part of the project it serves. */
+export function repoFromInstallation(
+  installation: GitHubInstallation,
+  repo: GitHubInstallation['repositories'][number],
+  role: RepoRole
+): ProjectRepository {
+  return {
+    ...makeRepository(repo.owner, repo.name, role),
+    htmlUrl: safeHref(repo.htmlUrl) || makeRepository(repo.owner, repo.name).htmlUrl,
+    installationId: installation.installationId,
+    githubRepositoryId: repo.id,
+  };
+}
+
+// The repo part a member's position works in (풀스택 -> 프론트 first, then 백엔드)
+const ROLES_BY_POSITION: Partial<Record<ProjectPosition, RepoRole[]>> = {
+  BACKEND: ['BACKEND'],
+  FRONTEND: ['FRONTEND'],
+  FULLSTACK: ['FRONTEND', 'BACKEND'],
+  INFRA: ['BACKEND'],
+};
+
+/** The repo for a member's part of the project: that part's repo, else the common one, else the first. */
 export function repoForPosition(project: Project, position?: ProjectPosition): ProjectRepository | undefined {
   const repos = project.repositories || [];
-  return (
-    (position && repos.find((r) => r.position === position)) || repos.find((r) => !r.position) || repos[0]
-  );
+  for (const role of (position && ROLES_BY_POSITION[position]) || []) {
+    const hit = repos.find((r) => r.role === role);
+    if (hit) return hit;
+  }
+  return repos.find((r) => r.role === 'COMMON') || repos[0];
 }
 
 /** Only http(s) links may be rendered as href (stored data could hold javascript: or other schemes). */
@@ -67,5 +68,15 @@ export function safeHref(url: string | undefined): string | undefined {
     return protocol === 'https:' || protocol === 'http:' ? url : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** The GitHub App install link from the backend must point at github.com before we send anyone there. */
+export function isGitHubInstallUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname === 'github.com' && u.pathname.startsWith('/apps/');
+  } catch {
+    return false;
   }
 }

@@ -76,17 +76,38 @@ export const TEAM_LIMITS = {
 
 export type ProjectType = 'WEB' | 'APP' | 'AI' | 'EMBEDDED' | 'OTHER';
 
+// Which part of the project a repo belongs to (backend: common | backend | frontend | ai; at most one common)
+export type RepoRole = 'COMMON' | 'BACKEND' | 'FRONTEND' | 'AI';
+
 export interface ProjectRepository {
   id: string; // "owner/name" lowercased
-  position?: ProjectPosition; // undefined = shared by the whole project (e.g. a monorepo)
+  role: RepoRole;
   owner: string;
   name: string;
   fullName: string;
   htmlUrl: string;
+  // Set for repos picked from a GitHub App installation (required by POST /api/projects)
+  installationId?: string;
+  githubRepositoryId?: string;
+}
+
+// A GitHub account/organization where the FlowMate GitHub App is installed (GET /api/github/installations)
+export interface GitHubInstallation {
+  installationId: string;
+  accountLogin: string;
+  accountType: string; // "Organization" | "User"
+  repositories: {
+    id: string;
+    owner: string;
+    name: string;
+    fullName: string;
+    htmlUrl: string;
+    private: boolean;
+  }[];
 }
 
 // What a member does in this project (independent of the permission role)
-export type ProjectPosition = 'BACKEND' | 'FRONTEND' | 'DESIGN' | 'PM' | 'ETC';
+export type ProjectPosition = 'BACKEND' | 'FRONTEND' | 'FULLSTACK' | 'DESIGN' | 'PM' | 'INFRA' | 'ETC';
 
 export interface ProjectMember {
   user: User;
@@ -99,8 +120,9 @@ export interface Project {
   id: string;
   workspaceId: string;
   name: string;
-  description: string;
+  description: string; // short summary
   goal: string;
+  designText?: string; // project design document (plain text for now); fed to AI issue drafts
   startDate: string;
   endDate: string;
   projectType: ProjectType;
@@ -109,6 +131,7 @@ export interface Project {
   // Project leader (user id). Leader is a per-project concept, not a team one.
   // Older records without it fall back to the member with role OWNER (see utils/projectLeader).
   leaderId?: string;
+  teamId?: string; // team the project belongs to (the backend requires one)
   // GitHub organization the project's repos live in (optional: repos may also be "owner/repo")
   githubOrg?: string;
   // One or more repos, each optionally tied to a part of the project (백엔드 repo, 프론트 repo, ...)
@@ -117,7 +140,46 @@ export interface Project {
   createdAt: string;
 }
 
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
+// What POST /api/projects needs (the server adds nothing: the creator and the leader must be in members,
+// and every member must belong to the team)
+export interface CreateProjectInput {
+  name: string;
+  description: string;
+  goal: string;
+  designText: string;
+  projectType: ProjectType;
+  startDate: string;
+  endDate: string;
+  teamId: string;
+  leaderId: string;
+  members: { user: User; position: ProjectPosition; skills: string[] }[];
+  additionalTechStack: string[];
+  repositories: ProjectRepository[];
+}
+
+export const PROJECT_LIMITS = {
+  NAME_MAX: 200,
+  DESCRIPTION_MAX: 5000,
+  GOAL_MAX: 2000,
+  DESIGN_TEXT_MAX: 50000,
+} as const;
+
+// One AI-suggested task (POST /api/projects/issue-drafts), editable before it is registered
+export interface IssueDraft {
+  key: string; // client-side id for editing the list
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  assigneeId?: string;
+  startDate: string;
+  dueDate: string;
+  estimatedHours?: number;
+  labels: string[];
+  createGithubIssue: boolean;
+}
+
+// Backend: TODO, IN_PROGRESS, DONE, CANCELLED. IN_REVIEW exists only in local mock data.
+export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE' | 'CANCELLED';
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 export interface GitHubIssue {
@@ -157,6 +219,8 @@ export interface Task {
   estimatedHours?: number;
   actualHours?: number;
   githubIssue?: GitHubIssue;
+  completedAt?: string;
+  commentCount?: number; // from list responses (comments themselves come with the detail)
   comments: TaskComment[];
   activities: TaskActivity[];
   createdAt: string;
@@ -204,6 +268,7 @@ export interface Meeting {
   summary?: string;
   decisions?: string[];
   actionItems?: ActionItem[];
+  approvedActionItemCount?: number; // list responses only carry the count
   transcript?: TranscriptSegment[];
   createdAt: string;
 }
@@ -214,6 +279,19 @@ export type NotificationType =
   | 'MEETING_ANALYZED'
   | 'APPROVAL_REQUIRED'
   | 'GITHUB_SYNCED';
+
+// GET /api/projects/{id}: what the project's Overview dashboard shows
+export interface ProjectDashboard {
+  startDate?: string;
+  endDate?: string;
+  progressPercent: number;
+  totalTaskCount: number;
+  completedTaskCount: number;
+  statusCounts: Record<TaskStatus, number>;
+  workload: { userId: string; name: string; avatarUrl?: string; active: number; done: number }[];
+  velocity: { date: string; completed: number }[]; // last 7 days
+  counts: { tasks: number; meetings: number; members: number };
+}
 
 export interface Notification {
   id: string;

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { Workspace, Project, User } from '../types';
+import { CreateProjectInput, Workspace, Project, User } from '../types';
+import type { CreateProjectResult } from '../services/projectTaskApi';
 import { api } from '../services/api';
 
 export type AppView =
@@ -31,7 +32,7 @@ interface WorkspaceState {
   setCurrentProjectId: (projectId: string | null) => void;
   setSelectedTeamId: (teamId: string | null) => void;
   fetchProjects: () => Promise<void>;
-  createProject: (data: Omit<Project, 'id' | 'createdAt' | 'progress'>) => Promise<Project>;
+  createProject: (input: CreateProjectInput) => Promise<CreateProjectResult>;
   /** Changes the signed-in user's nickname (the only profile field the backend lets you edit). */
   updateNickname: (nickname: string) => Promise<User>;
 }
@@ -97,10 +98,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ projects });
   },
 
-  createProject: async (data) => {
-    const newProj = await api.createProject(data);
+  createProject: async (input) => {
+    const result = await api.createProject(input);
     await get().fetchProjects();
-    return newProj;
+    return result;
   },
 
   updateNickname: async (nickname) => {

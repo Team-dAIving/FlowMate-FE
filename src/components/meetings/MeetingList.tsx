@@ -19,7 +19,7 @@ export const MeetingList: React.FC = () => {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
-      {!isFeatureAvailable('meetings') && <NotConnected feature="회의록·AI 분석" />}
+      {!isFeatureAvailable('meetingWrite') && <NotConnected feature="회의 녹음·AI 분석" />}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>

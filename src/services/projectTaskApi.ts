@@ -1,14 +1,36 @@
-import { Project, ProjectPosition, ProjectType, Task, TaskComment, TaskPriority, TaskStatus, User } from '../types';
+import {
+  CreateProjectInput,
+  IssueDraft,
+  Meeting,
+  MeetingStatus,
+  ProjectDashboard,
+  ProjectMember,
+  Project,
+  ProjectRepository,
+  ProjectType,
+  Task,
+  TaskComment,
+  TaskPriority,
+  TaskStatus,
+  User,
+} from '../types';
 import { http } from './http';
-import { normalizeSkills } from '../utils/positions';
+import { normalizeSkills, partToPosition, positionToPart } from '../utils/positions';
+import { safeHref, toRepoRole } from '../utils/github';
 
 // Backend (FlowMate-BE, dev branch) endpoints for projects and tasks:
 //   GET    /api/projects                -> my projects
-//   GET    /api/teams/{teamId}          -> team detail incl. its tasks (the only task list endpoint)
+//   POST   /api/projects                -> create (team, members with part/stack, GitHub App repos)
+//   GET    /api/projects/{id}           -> detail (dates, leader, counts)
+//   POST   /api/projects/issue-drafts   -> AI task drafts from the project info (nothing is saved)
+//   GET    /api/projects/{id}/tasks     -> the project's tasks
+//   GET    /api/projects/{id}/members   -> members with e-mail, parts, stack
+//   GET    /api/projects/{id}/meetings  -> the project's meetings (summary, status)
 //   GET    /api/tasks/{taskId}          -> task detail incl. comments and GitHub info
 //   POST   /api/tasks/{taskId}/comments -> add a comment
 //   DELETE /api/tasks/{taskId}          -> delete a task
-// There are no create/update endpoints for projects or tasks yet (see services/features.ts).
+// Not there yet: editing a project, creating/updating tasks (incl. registering AI drafts) and
+// creating GitHub issues (see services/features.ts).
 
 // ---- DTOs (exactly as the backend records) ----
 interface ProjectMemberSummaryDto {
@@ -16,39 +38,25 @@ interface ProjectMemberSummaryDto {
   nickname: string | null;
   avatarUrl: string | null;
   role: string | null; // "Leader" for the project leader
+  parts: string[] | null; // backend part values: backend, frontend, fullstack, design, pm, infra, others
+  techStack: string[] | null;
 }
 interface ProjectListItemDto {
   id: number;
   type: string | null;
   name: string | null;
   description: string | null;
+  goal: string | null;
   status: string | null;
   teamId: number;
   teamName: string | null;
   teamThemeColor: string | null;
   leaderName: string | null;
-  techStack: Record<string, unknown> | null;
+  techStack: unknown; // List<String> now; older servers sent free-form JSON
   members: ProjectMemberSummaryDto[] | null;
   totalTaskCount: number;
   completedTaskCount: number;
   progressPercent: number;
-}
-interface TeamTaskDto {
-  id: number;
-  projectId: number;
-  projectName: string | null;
-  title: string | null;
-  status: string | null;
-  priority: string | null;
-  assigneeUserId: number | null;
-  assigneeNickname: string | null;
-  assigneeAvatarUrl: string | null;
-  dueDate: string | null;
-  githubIssueNumber: number | null;
-}
-interface TeamDetailDto {
-  id: number;
-  tasks: TeamTaskDto[] | null;
 }
 interface TaskAssigneeDto {
   projectMemberId: number;
@@ -97,18 +105,9 @@ interface TaskDetailDto {
 }
 
 // ---- mappers ----
-const STATUSES: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE'];
+const STATUSES: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELLED'];
 const PRIORITIES: TaskPriority[] = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 const TYPES: ProjectType[] = ['WEB', 'APP', 'AI', 'EMBEDDED', 'OTHER'];
-const POSITION_BY_ROLE: Record<string, ProjectPosition> = {
-  BACKEND: 'BACKEND',
-  BE: 'BACKEND',
-  FRONTEND: 'FRONTEND',
-  FE: 'FRONTEND',
-  DESIGN: 'DESIGN',
-  DESIGNER: 'DESIGN',
-  PM: 'PM',
-};
 
 const pick = <T extends string>(value: string | null | undefined, allowed: T[], fallback: T): T => {
   const v = (value || '').trim().toUpperCase() as T;
@@ -142,15 +141,17 @@ export function toProject(dto: ProjectListItemDto): Project {
     user: toUser(m.userId, m.nickname, m.avatarUrl),
     // permission: the leader owns the project
     role: isLeaderRole(m.role) ? ('OWNER' as const) : ('MEMBER' as const),
-    position: POSITION_BY_ROLE[(m.role || '').trim().toUpperCase()],
+    position: (m.parts || []).map(partToPosition).find(Boolean),
+    skills: normalizeSkills((m.techStack || []).filter((s): s is string => typeof s === 'string')),
   }));
   const leader = (dto.members || []).find((m) => isLeaderRole(m.role));
   return {
     id: String(dto.id),
     workspaceId: '',
+    teamId: dto.teamId != null ? String(dto.teamId) : undefined,
     name: dto.name || '이름 없는 프로젝트',
     description: dto.description || '',
-    goal: '',
+    goal: dto.goal || '',
     startDate: '',
     endDate: '',
     projectType: pick(dto.type, TYPES, 'OTHER'),
@@ -162,34 +163,108 @@ export function toProject(dto: ProjectListItemDto): Project {
   };
 }
 
-export function toTaskSummary(dto: TeamTaskDto): Task {
-  return {
-    id: String(dto.id),
-    projectId: String(dto.projectId),
-    projectName: dto.projectName || undefined,
-    title: dto.title || '(제목 없음)',
-    description: '', // only in the detail response
-    assignee: dto.assigneeUserId != null ? toUser(dto.assigneeUserId, dto.assigneeNickname, dto.assigneeAvatarUrl) : undefined,
-    priority: pick(dto.priority, PRIORITIES, 'MEDIUM'),
-    status: pick(dto.status, STATUSES, 'TODO'),
-    dueDate: dto.dueDate || undefined,
-    githubIssue:
-      dto.githubIssueNumber != null
-        ? { id: dto.githubIssueNumber, number: dto.githubIssueNumber, title: '', htmlUrl: '', state: 'open' }
-        : undefined,
-    comments: [],
-    activities: [],
-    createdAt: '',
-    updatedAt: '',
-  };
-}
-
 const toComment = (c: TaskCommentDto): TaskComment => ({
   id: String(c.id),
   user: toUser(c.authorUserId, c.authorNickname, c.authorAvatarUrl),
   content: c.content,
   createdAt: c.createdAt,
 });
+
+export function toProjectTask(dto: ProjectTaskDto, projectId: string, projectName?: string): Task {
+  const gh = dto.github;
+  const repoUrl = safeHref(gh?.htmlUrl || undefined);
+  return {
+    id: String(dto.id),
+    projectId,
+    projectName,
+    title: dto.title || '(제목 없음)',
+    description: dto.description || '',
+    assignee: dto.assignee ? toUser(dto.assignee.userId, dto.assignee.nickname, dto.assignee.avatarUrl) : undefined,
+    priority: pick(dto.priority, PRIORITIES, 'MEDIUM'),
+    status: pick(dto.status, STATUSES, 'TODO'),
+    startDate: dto.startDate || undefined,
+    dueDate: dto.dueDate || undefined,
+    estimatedHours: dto.estimatedTime ?? undefined,
+    actualHours: dto.actualTime ?? undefined,
+    completedAt: dto.completedAt || undefined,
+    commentCount: dto.commentCount ?? 0,
+    githubIssue:
+      gh && gh.issueNumber != null
+        ? {
+            id: gh.issueNumber,
+            number: gh.issueNumber,
+            title: gh.repositoryName ? `${gh.repositoryName}#${gh.issueNumber}` : `#${gh.issueNumber}`,
+            // the list only has the repository URL; the issue URL follows GitHub's pattern
+            htmlUrl: repoUrl ? `${repoUrl.replace(/\/+$/, '')}/issues/${gh.issueNumber}` : '',
+            state: pick(dto.status, STATUSES, 'TODO') === 'DONE' ? 'closed' : 'open',
+          }
+        : undefined,
+    comments: [],
+    activities: [],
+    createdAt: dto.createdAt || '',
+    updatedAt: dto.updatedAt || '',
+  };
+}
+
+const toProjectMember = (m: ProjectMemberDto): ProjectMember => ({
+  user: { ...toUser(m.userId, m.nickname, m.avatarUrl), email: m.email || '' },
+  role: m.leader ? 'OWNER' : 'MEMBER',
+  position: (m.parts || []).map(partToPosition).find(Boolean),
+  skills: normalizeSkills((m.techStack || []).filter((s): s is string => typeof s === 'string')),
+});
+
+// processingStatus is free text on the backend; map what the UI can show
+function toMeetingStatus(value: string | null): MeetingStatus {
+  const v = (value || '').trim().toUpperCase();
+  if (['COMPLETED', 'ANALYZED', 'DONE', 'SUCCESS'].includes(v)) return 'ANALYZED';
+  if (v === 'FAILED' || v === 'ERROR') return 'FAILED';
+  if (v === 'RECORDING') return 'RECORDING';
+  if (['RECORDED', 'UPLOADED', 'PENDING'].includes(v)) return 'RECORDED';
+  return 'TRANSCRIBING';
+}
+
+const toMeeting = (m: ProjectMeetingDto, projectId: string, projectName?: string): Meeting => ({
+  id: String(m.id),
+  projectId,
+  projectName,
+  title: m.title || '(제목 없는 회의)',
+  meetingDate: m.heldAt || '',
+  participants: [],
+  audioDurationSeconds: m.durationSeconds ?? undefined,
+  status: toMeetingStatus(m.processingStatus),
+  summary: m.summary || undefined,
+  approvedActionItemCount: m.approvedActionItemCount ?? 0,
+  createdAt: m.heldAt || '',
+});
+
+function toDashboard(d: ProjectDashboardDto): ProjectDashboard {
+  const statusCounts = { TODO: 0, IN_PROGRESS: 0, IN_REVIEW: 0, DONE: 0, CANCELLED: 0 };
+  for (const [k, v] of Object.entries(d.taskStatusCounts || {})) {
+    const s = pick(k, STATUSES, 'TODO');
+    if (s === k.toUpperCase() && Number.isFinite(v)) statusCounts[s] += v;
+  }
+  return {
+    startDate: d.startDate || undefined,
+    endDate: d.endDate || undefined,
+    progressPercent: d.progress?.percent ?? 0,
+    totalTaskCount: d.progress?.totalTaskCount ?? 0,
+    completedTaskCount: d.progress?.completedTaskCount ?? 0,
+    statusCounts,
+    workload: (d.workload || []).map((w) => ({
+      userId: String(w.userId),
+      name: w.nickname || '이름 없음',
+      avatarUrl: w.avatarUrl || undefined,
+      active: w.activeTaskCount ?? 0,
+      done: w.completedTaskCount ?? 0,
+    })),
+    velocity: (d.velocity || []).map((v) => ({ date: v.date, completed: v.completedTaskCount ?? 0 })),
+    counts: {
+      tasks: d.counts?.taskCount ?? 0,
+      meetings: d.counts?.meetingCount ?? 0,
+      members: d.counts?.memberCount ?? 0,
+    },
+  };
+}
 
 export function toTaskDetail(dto: TaskDetailDto): Task {
   const gh = dto.github;
@@ -223,33 +298,237 @@ export function toTaskDetail(dto: TaskDetailDto): Task {
   };
 }
 
+// GET /api/projects/{id}/tasks items (also recentTasks of the project detail)
+interface ProjectTaskDto {
+  id: number;
+  title: string | null;
+  description: string | null;
+  status: string | null;
+  priority: string | null;
+  startDate: string | null;
+  dueDate: string | null;
+  estimatedTime: number | null;
+  actualTime: number | null;
+  completedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  assignee: { userId: number; nickname: string | null; avatarUrl: string | null } | null;
+  github: {
+    repositoryName: string | null;
+    htmlUrl: string | null; // the repository URL
+    issueNumber: number | null;
+  } | null;
+  commentCount: number;
+}
+interface ProjectMemberDto {
+  projectMemberId: number;
+  userId: number;
+  nickname: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+  parts: string[] | null;
+  techStack: string[] | null;
+  leader: boolean;
+  accessRole: string | null; // OWNER for the leader, MEMBER otherwise
+}
+interface ProjectMeetingDto {
+  id: number;
+  title: string | null;
+  summary: string | null;
+  heldAt: string | null;
+  durationSeconds: number | null;
+  processingStatus: string | null;
+  approvedActionItemCount: number;
+}
+interface ProjectDashboardDto {
+  startDate: string | null;
+  endDate: string | null;
+  counts: { taskCount: number; meetingCount: number; memberCount: number } | null;
+  progress: { totalTaskCount: number; completedTaskCount: number; percent: number } | null;
+  taskStatusCounts: Record<string, number> | null;
+  workload:
+    | { userId: number; nickname: string | null; avatarUrl: string | null; activeTaskCount: number; completedTaskCount: number }[]
+    | null;
+  velocity: { date: string; completedTaskCount: number }[] | null;
+}
+
+interface ConnectedRepositoryDto {
+  githubRepositoryId: number;
+  installationId: number;
+  owner: string | null;
+  name: string | null;
+  htmlUrl: string | null;
+  role: string | null;
+}
+interface CreateProjectResponseDto {
+  id: number;
+  importedGithubIssueCount: number;
+  githubIssueImportStatus: string | null; // NOT_REQUESTED | SUCCESS | FAILED
+  repositories: ConnectedRepositoryDto[] | null;
+}
+interface ProjectDetailDto {
+  id: number;
+  startDate: string | null;
+  endDate: string | null;
+  team: { id: number } | null;
+}
+interface TeamDetailProjectDto {
+  id: number;
+  designText: string | null;
+}
+interface IssueDraftDto {
+  title: string;
+  description: string | null;
+  priority: string | null;
+  assigneeId: number | null;
+  startDate: string;
+  dueDate: string;
+  estimatedHours: number | null;
+  labels: string[] | null;
+}
+
+export interface CreateProjectResult {
+  id: string;
+  importedIssueCount: number;
+  issueImportFailed: boolean;
+  repositories: ProjectRepository[];
+}
+
+const toConnectedRepo = (r: ConnectedRepositoryDto): ProjectRepository => ({
+  id: `${r.owner}/${r.name}`.toLowerCase(),
+  role: toRepoRole(r.role),
+  owner: r.owner || '',
+  name: r.name || '',
+  fullName: `${r.owner}/${r.name}`,
+  htmlUrl: safeHref(r.htmlUrl || undefined) || '',
+  installationId: String(r.installationId),
+  githubRepositoryId: String(r.githubRepositoryId),
+});
+
+const toId = (id: string) => {
+  const n = Number(id);
+  if (!Number.isSafeInteger(n) || n <= 0) throw new Error(`잘못된 ID입니다: ${id}`);
+  return n;
+};
+
+// Project info shared by POST /api/projects and POST /api/projects/issue-drafts
+const projectBody = (input: Omit<CreateProjectInput, 'repositories' | 'additionalTechStack'>) => ({
+  name: input.name.trim(),
+  description: input.description.trim(),
+  goal: input.goal.trim(),
+  designText: input.designText.trim(),
+  type: input.projectType,
+  startDate: input.startDate,
+  endDate: input.endDate,
+  teamId: toId(input.teamId),
+  leaderUserId: toId(input.leaderId),
+});
+
+export interface IssueDraftRequest extends Omit<CreateProjectInput, 'repositories' | 'additionalTechStack'> {
+  /** GitHub repo URL per member (their part's repo), helps the AI place work */
+  repoUrlByUserId?: Record<string, string | undefined>;
+}
+
+let draftSeq = 0;
+export const toIssueDraft = (d: IssueDraftDto): IssueDraft => ({
+  key: `draft-${Date.now()}-${draftSeq++}`,
+  title: d.title,
+  description: d.description || '',
+  priority: pick(d.priority, PRIORITIES, 'MEDIUM'),
+  assigneeId: d.assigneeId != null ? String(d.assigneeId) : undefined,
+  startDate: d.startDate,
+  dueDate: d.dueDate,
+  estimatedHours: d.estimatedHours ?? undefined,
+  labels: (d.labels || []).filter((l): l is string => typeof l === 'string'),
+  createGithubIssue: true,
+});
+
 export const projectTaskApi = {
   getProjects: async (): Promise<Project[]> => {
     const res = await http<{ projects?: ProjectListItemDto[] }>('/api/projects');
     return (res?.projects || []).map(toProject);
   },
 
-  /** All tasks of all my teams (the backend lists tasks per team only). */
-  getTasks: async (teamIds: string[], projectId?: string): Promise<Task[]> => {
-    // One team failing (e.g. you were just removed: 404) must not empty the whole list
-    const results = await Promise.allSettled(
-      teamIds.map((id) => http<TeamDetailDto>(`/api/teams/${encodeURIComponent(id)}`))
-    );
-    const failed = results.filter((r) => r.status === 'rejected');
-    if (failed.length > 0 && failed.length === results.length) throw (failed[0] as PromiseRejectedResult).reason;
-    failed.forEach((r) => console.warn('Could not load tasks of a team:', (r as PromiseRejectedResult).reason));
-    const seen = new Set<string>();
-    const tasks: Task[] = [];
-    for (const r of results) {
-      if (r.status !== 'fulfilled') continue;
-      for (const t of r.value?.tasks || []) {
-        const task = toTaskSummary(t);
-        if (seen.has(task.id) || (projectId && task.projectId !== projectId)) continue;
-        seen.add(task.id);
-        tasks.push(task);
-      }
-    }
-    return tasks;
+  createProject: async (input: CreateProjectInput): Promise<CreateProjectResult> => {
+    const res = await http<CreateProjectResponseDto>('/api/projects', {
+      method: 'POST',
+      // The server reads every connected repo's issues from GitHub before answering
+      timeoutMs: 60000,
+      json: {
+        ...projectBody(input),
+        members: input.members.map((m) => ({
+          userId: toId(m.user.id),
+          part: positionToPart(m.position),
+          techStack: m.skills,
+        })),
+        additionalTechStack: input.additionalTechStack,
+        repositories: input.repositories.map((r) => {
+          if (!r.installationId || !r.githubRepositoryId) throw new Error(`${r.fullName}은(는) GitHub 앱에서 고른 레포가 아닙니다.`);
+          return {
+            installationId: toId(r.installationId),
+            githubRepositoryId: toId(r.githubRepositoryId),
+            role: r.role.toLowerCase(),
+          };
+        }),
+      },
+    });
+    return {
+      id: String(res.id),
+      importedIssueCount: res.importedGithubIssueCount ?? 0,
+      issueImportFailed: res.githubIssueImportStatus === 'FAILED',
+      repositories: (res.repositories || []).map(toConnectedRepo),
+    };
+  },
+
+  /** GET /api/projects/{id}: dates, progress, status counts, workload, 7-day velocity. */
+  getProjectDashboard: async (projectId: string): Promise<ProjectDashboard> =>
+    toDashboard(await http<ProjectDashboardDto>(`/api/projects/${encodeURIComponent(projectId)}`)),
+
+  getProjectTasks: async (projectId: string, projectName?: string): Promise<Task[]> => {
+    const res = await http<{ tasks?: ProjectTaskDto[] }>(`/api/projects/${encodeURIComponent(projectId)}/tasks`);
+    return (res?.tasks || []).map((t) => toProjectTask(t, projectId, projectName));
+  },
+
+  getProjectMembers: async (projectId: string): Promise<ProjectMember[]> => {
+    const res = await http<{ members?: ProjectMemberDto[] }>(`/api/projects/${encodeURIComponent(projectId)}/members`);
+    return (res?.members || []).map(toProjectMember);
+  },
+
+  getProjectMeetings: async (projectId: string, projectName?: string): Promise<Meeting[]> => {
+    const res = await http<{ meetings?: ProjectMeetingDto[] }>(`/api/projects/${encodeURIComponent(projectId)}/meetings`);
+    return (res?.meetings || []).map((m) => toMeeting(m, projectId, projectName));
+  },
+
+  /** Start/end dates (not in the project list) via GET /api/projects/{id}. */
+  getProjectDates: async (projectId: string): Promise<{ startDate: string; endDate: string; teamId?: string }> => {
+    const d = await http<ProjectDetailDto>(`/api/projects/${encodeURIComponent(projectId)}`);
+    return { startDate: d.startDate || '', endDate: d.endDate || '', teamId: d.team ? String(d.team.id) : undefined };
+  },
+
+  /** The design document only comes with the team detail (GET /api/teams/{id} -> projects[].designText). */
+  getDesignText: async (teamId: string, projectId: string): Promise<string> => {
+    const team = await http<{ projects?: TeamDetailProjectDto[] }>(`/api/teams/${encodeURIComponent(teamId)}`);
+    return (team?.projects || []).find((p) => String(p.id) === projectId)?.designText || '';
+  },
+
+  generateIssueDrafts: async (input: IssueDraftRequest): Promise<IssueDraft[]> => {
+    const res = await http<{ issues?: IssueDraftDto[] }>('/api/projects/issue-drafts', {
+      method: 'POST',
+      timeoutMs: 120000, // the AI server can take a while
+      json: {
+        ...projectBody(input),
+        members: input.members.map((m) => {
+          const url = input.repoUrlByUserId?.[m.user.id];
+          return {
+            userId: toId(m.user.id),
+            part: positionToPart(m.position),
+            techStack: m.skills.join(', '),
+            ...(url ? { githubRepositoryUrl: url.slice(0, 500) } : {}),
+          };
+        }),
+      },
+    });
+    return (res?.issues || []).map(toIssueDraft);
   },
 
   getTaskDetail: async (taskId: string): Promise<Task> =>

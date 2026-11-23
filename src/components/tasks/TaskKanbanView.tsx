@@ -6,6 +6,7 @@ import { Avatar } from '../ui/Avatar';
 import { formatDate } from '../../utils/formatters';
 import { isOverdue as isTaskOverdue } from '../../utils/dates';
 import { isFeatureAvailable } from '../../services/features';
+import { STATUS_META, TASK_STATUSES } from '../../utils/taskStatus';
 import { useTaskStore } from '../../store/useTaskStore';
 import { useUIStore } from '../../store/useUIStore';
 
@@ -14,12 +15,11 @@ export interface TaskKanbanViewProps {
   onSelectTask: (taskId: string) => void;
 }
 
-const COLUMNS: { id: TaskStatus; label: string; dot: string }[] = [
-  { id: 'TODO', label: 'TODO', dot: 'bg-slate-400' },
-  { id: 'IN_PROGRESS', label: 'IN PROGRESS', dot: 'bg-blue-500' },
-  { id: 'IN_REVIEW', label: 'IN REVIEW', dot: 'bg-amber-500' },
-  { id: 'DONE', label: 'DONE', dot: 'bg-emerald-500' },
-];
+const COLUMNS: { id: TaskStatus; label: string; dot: string }[] = TASK_STATUSES.map((id) => ({
+  id,
+  label: STATUS_META[id].label,
+  dot: STATUS_META[id].dot,
+}));
 
 export const TaskKanbanView: React.FC<TaskKanbanViewProps> = ({ tasks, onSelectTask }) => {
   const { updateTaskStatus } = useTaskStore();

@@ -46,6 +46,12 @@ export const Badge: React.FC<BadgeProps> = ({
         text: 'text-emerald-700 dark:text-emerald-300',
         dot: 'bg-emerald-500',
       },
+      CANCELLED: {
+        label: 'CANCELLED',
+        bg: 'bg-gray-100 dark:bg-gray-800/60',
+        text: 'text-gray-500 dark:text-gray-400 line-through',
+        dot: 'bg-gray-400',
+      },
     };
 
     const cfg = statusConfig[status];

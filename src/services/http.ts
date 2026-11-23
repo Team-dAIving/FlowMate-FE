@@ -40,14 +40,19 @@ function extractMessage(body: unknown): string | undefined {
 
 interface HttpOptions extends Omit<RequestInit, 'body'> {
   json?: unknown;
+  /** Defaults to 15s. Slow server work (AI generation, GitHub import) passes a longer one. */
+  timeoutMs?: number;
 }
 
 const REQUEST_TIMEOUT_MS = 15000;
 
-export async function http<T>(path: string, { json, headers, signal, ...init }: HttpOptions = {}): Promise<T> {
+export async function http<T>(
+  path: string,
+  { json, headers, signal, timeoutMs = REQUEST_TIMEOUT_MS, ...init }: HttpOptions = {}
+): Promise<T> {
   const webToken = isDesktop() ? null : webTokenProvider();
   // A server that accepts the connection but never answers would otherwise hang the app forever
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(timeoutMs);
   let res: Response;
   try {
     res = await fetch(`${BASE_URL}${path}`, {

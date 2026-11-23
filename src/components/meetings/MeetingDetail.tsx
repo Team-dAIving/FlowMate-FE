@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { isFeatureAvailable } from '../../services/features';
+import { NotConnected } from '../ui/NotConnected';
 import {
   ArrowLeft,
   Sparkles,
@@ -168,7 +170,7 @@ export const MeetingDetail: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {meeting.status !== 'ANALYZED' && (
+            {meeting.status !== 'ANALYZED' && isFeatureAvailable('meetingWrite') && (
               <Button
                 size="sm"
                 variant="primary"
@@ -188,6 +190,13 @@ export const MeetingDetail: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {!isFeatureAvailable('meetingWrite') && (
+        <NotConnected feature="회의 업무 승인·전문 보기" />
+      )}
+      {meeting.approvedActionItemCount !== undefined && actionItems.length === 0 && (
+        <p className="text-[11px] text-text-muted">이 회의에서 승인된 업무: {meeting.approvedActionItemCount}개</p>
+      )}
 
       {/* Tabs */}
       <Tabs tabs={tabs} activeTab={activeTab} onChange={(id) => setActiveTab(id as any)} />

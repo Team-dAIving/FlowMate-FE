@@ -10,6 +10,9 @@ export const todayISO = (): string => format(new Date(), 'yyyy-MM-dd');
 /** n days from today, yyyy-MM-dd, local time. */
 export const daysFromTodayISO = (n: number): string => format(addDays(new Date(), n), 'yyyy-MM-dd');
 
-/** Past due and not done. Due today is not overdue. */
+/** The local calendar day (yyyy-MM-dd) of a timestamp such as 2026-11-19T15:30:00Z. */
+export const localDayOf = (iso: string): string => format(new Date(iso), 'yyyy-MM-dd');
+
+/** Past due and still open (not done, not cancelled). Due today is not overdue. */
 export const isOverdue = (task: Pick<Task, 'dueDate' | 'status'>): boolean =>
-  Boolean(task.dueDate) && task.status !== 'DONE' && task.dueDate!.slice(0, 10) < todayISO();
+  Boolean(task.dueDate) && task.status !== 'DONE' && task.status !== 'CANCELLED' && task.dueDate!.slice(0, 10) < todayISO();

@@ -3,10 +3,29 @@ import { ProjectMember, ProjectPosition } from '../types';
 export const POSITIONS: { id: ProjectPosition; label: string; color: string }[] = [
   { id: 'BACKEND', label: '백엔드', color: '#2563EB' },
   { id: 'FRONTEND', label: '프론트엔드', color: '#059669' },
+  { id: 'FULLSTACK', label: '풀스택', color: '#0891B2' },
   { id: 'DESIGN', label: '디자인', color: '#DB2777' },
   { id: 'PM', label: 'PM', color: '#D97706' },
+  { id: 'INFRA', label: '인프라', color: '#7C3AED' },
   { id: 'ETC', label: '기타', color: '#6B7280' },
 ];
+
+// Backend "part" values (POST /api/projects, /api/projects/issue-drafts, member responses)
+const PART_BY_POSITION: Record<ProjectPosition, string> = {
+  BACKEND: 'backend',
+  FRONTEND: 'frontend',
+  FULLSTACK: 'fullstack',
+  DESIGN: 'design',
+  PM: 'pm',
+  INFRA: 'infra',
+  ETC: 'others',
+};
+export const positionToPart = (p: ProjectPosition) => PART_BY_POSITION[p];
+export const partToPosition = (part: string | null | undefined): ProjectPosition | undefined => {
+  const key = (part || '').trim().toLowerCase();
+  if (key === 'ai') return 'ETC'; // seen in sample data; not an accepted part on create
+  return (Object.keys(PART_BY_POSITION) as ProjectPosition[]).find((p) => PART_BY_POSITION[p] === key);
+};
 
 /** Suggested tech stack per position. Anything else can be typed in. */
 export const SKILLS_BY_POSITION: Record<ProjectPosition, string[]> = {
@@ -44,6 +63,22 @@ export const SKILLS_BY_POSITION: Record<ProjectPosition, string[]> = {
     'Swift',
     'Electron',
   ],
+  FULLSTACK: [
+    'TypeScript',
+    'React',
+    'Next.js',
+    'Node.js',
+    'NestJS',
+    'Spring Boot',
+    'Java',
+    'Python',
+    'FastAPI',
+    'MySQL',
+    'PostgreSQL',
+    'Firebase',
+    'Supabase',
+  ],
+  INFRA: ['AWS', 'GCP', 'Docker', 'Kubernetes', 'GitHub Actions', 'Nginx', 'Linux', 'Terraform', 'Vercel'],
   DESIGN: ['Figma', 'Adobe XD', 'Photoshop', 'Illustrator', 'After Effects', 'Protopie', 'Blender'],
   PM: ['Notion', 'Jira', 'Slack', 'Confluence', 'Miro', 'Google Workspace', 'GitHub Projects'],
   ETC: ['Python', 'pandas', 'scikit-learn', 'LightGBM', 'PyTorch', 'TensorFlow', 'Jupyter', 'Unity', 'Arduino'],

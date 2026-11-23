@@ -161,7 +161,7 @@ export const AudioRecorderModal: React.FC<AudioRecorderModalProps> = ({ isOpen, 
   };
 
   // Deployed service without this backend API yet: say so instead of a form that can only fail
-  if (!isFeatureAvailable('meetings')) {
+  if (!isFeatureAvailable('meetingWrite')) {
     return (
       <Modal isOpen={isOpen} onClose={onClose} maxWidth="md" title="팀 회의 녹음 & AI 분석">
         <NotConnected feature="회의 녹음·AI 분석" />

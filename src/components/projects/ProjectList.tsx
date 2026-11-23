@@ -23,7 +23,7 @@ export const ProjectList: React.FC = () => {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
-      {!isFeatureAvailable('projectWrite') && <NotConnected feature="프로젝트 생성·수정" />}
+      {!isFeatureAvailable('projectWrite') && <NotConnected feature="만든 뒤 프로젝트 정보 수정" />}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>

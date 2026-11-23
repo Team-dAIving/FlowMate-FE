@@ -11,6 +11,11 @@ import {
   PublicUserProfile,
   USER_CODE_PATTERN,
   CreateTeamInput,
+  CreateProjectInput,
+  GitHubInstallation,
+  IssueDraft,
+  ProjectDashboard,
+  ProjectMember,
 } from '../types';
 import {
   currentUser,
@@ -26,9 +31,14 @@ import {
 import { ApiError, USE_REAL_API } from './http';
 import { teamApi } from './teamApi';
 import { authApi } from './authApi';
-import { projectTaskApi } from './projectTaskApi';
-import { repoForPosition } from '../utils/github';
-import { daysFromTodayISO, todayISO } from '../utils/dates';
+import { CreateProjectResult, projectTaskApi } from './projectTaskApi';
+import { githubApi } from './githubApi';
+import { makeRepository, repoForPosition } from '../utils/github';
+import { positionLabel, projectTechStack } from '../utils/positions';
+import { getProjectLeader } from '../utils/projectLeader';
+import { countByStatus, isOpenStatus } from '../utils/taskStatus';
+import { addDays, differenceInCalendarDays, format, parseISO } from 'date-fns';
+import { daysFromTodayISO, localDayOf, todayISO } from '../utils/dates';
 
 const STORAGE_KEYS = {
   USER: 'flowmate_user',
@@ -45,8 +55,15 @@ const STORAGE_KEYS = {
 // (2: student teams - hackathon / finance competition / capstone, instead of company departments)
 // (3: project members have a position and tech stack)
 // (4: GitHub organization + repositories per position instead of a single repo)
-const MOCK_DATA_VERSION = '4';
+// (5: repositories carry a role (COMMON/BACKEND/FRONTEND/AI) and come from GitHub App installations)
+const MOCK_DATA_VERSION = '5';
 const MOCK_GITHUB_ORGS = ['Team-dAIving', 'team-bamsaem', 'quant-house'];
+// Repos per mock GitHub App installation (an org can hold repos no project uses yet)
+const MOCK_GITHUB_REPOS: Record<string, string[]> = {
+  'Team-dAIving': ['FlowMate-FE', 'FlowMate-BE', 'FlowMate-AI', 'docs'],
+  'team-bamsaem': ['babchingu-app', 'babchingu-server', 'babchingu-design'],
+  'quant-house': ['fraud-detection', 'feature-store'],
+};
 const MOCK_VERSION_KEY = 'flowmate_mock_version';
 const MOCK_KEYS = [
   STORAGE_KEYS.USER,
@@ -136,6 +153,20 @@ function setStored<T>(key: string, value: T): void {
 // Real API mode (VITE_API_BASE_URL set, i.e. the deployed service): features the backend doesn't have yet
 // return nothing or fail with this, instead of silently using local mock data.
 export const NOT_CONNECTED_MESSAGE = '이 기능은 아직 서버와 연결되지 않아 사용할 수 없습니다.';
+/**
+ * Runs a per-project request for one project, or for all of mine (the backend lists tasks and meetings
+ * per project). One project failing (e.g. you were just removed: 404) must not empty the whole list.
+ */
+async function forEachProject<T>(projectId: string | undefined, load: (p: Project) => Promise<T[]>): Promise<T[]> {
+  const projects = await projectTaskApi.getProjects();
+  const targets = projectId ? projects.filter((p) => p.id === projectId) : projects;
+  const results = await Promise.allSettled(targets.map(load));
+  const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failed.length > 0 && failed.length === results.length) throw failed[0].reason;
+  failed.forEach((r) => console.warn('Could not load the data of a project:', r.reason));
+  return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+}
+
 function notConnected(): never {
   throw new ApiError(501, NOT_CONNECTED_MESSAGE);
 }
@@ -169,12 +200,7 @@ export const api = {
 
   // 3. Projects
   getProjects: async (): Promise<Project[]> => {
-    if (USE_REAL_API) {
-      // GET /api/projects has no goal; the backend's projects.subject (the goal) only comes with the teams
-      const [projects, teams] = await Promise.all([projectTaskApi.getProjects(), teamApi.getTeams()]);
-      const subjectById = new Map(teams.flatMap((t) => t.projects).map((p) => [p.id, p.subject]));
-      return projects.map((p) => ({ ...p, goal: p.goal || subjectById.get(p.id) || '' }));
-    }
+    if (USE_REAL_API) return projectTaskApi.getProjects(); // GET /api/projects (goal included)
     return getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
   },
 
@@ -184,18 +210,84 @@ export const api = {
     return projects.find((p) => p.id === id);
   },
 
-  createProject: async (projectData: Omit<Project, 'id' | 'createdAt' | 'progress'>): Promise<Project> => {
-    if (USE_REAL_API) notConnected();
+  /** Project Overview numbers (GET /api/projects/{id}). Mock: computed from local tasks the same way. */
+  getProjectDashboard: async (project: Project): Promise<ProjectDashboard> => {
+    if (USE_REAL_API) return projectTaskApi.getProjectDashboard(project.id);
+    const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks).filter((t) => t.projectId === project.id);
+    const statusCounts = countByStatus(tasks);
+    const done = statusCounts.DONE;
+    const day = (iso: string) => (iso ? localDayOf(iso) : '');
+    const velocity = Array.from({ length: 7 }, (_, i) => {
+      const date = daysFromTodayISO(i - 6);
+      return {
+        date,
+        completed: tasks.filter((t) => t.status === 'DONE' && day(t.completedAt || t.updatedAt || '') === date).length,
+      };
+    });
+    return {
+      startDate: project.startDate || undefined,
+      endDate: project.endDate || undefined,
+      progressPercent: tasks.length === 0 ? 0 : Math.round((done * 100) / tasks.length),
+      totalTaskCount: tasks.length,
+      completedTaskCount: done,
+      statusCounts,
+      workload: project.members.map((m) => {
+        const mine = tasks.filter((t) => t.assignee?.id === m.user.id);
+        return {
+          userId: m.user.id,
+          name: m.user.name,
+          avatarUrl: m.user.avatarUrl,
+          active: mine.filter((t) => isOpenStatus(t.status)).length,
+          done: mine.filter((t) => t.status === 'DONE').length,
+        };
+      }),
+      velocity,
+      counts: {
+        tasks: tasks.length,
+        meetings: getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings).filter((m) => m.projectId === project.id).length,
+        members: project.members.length,
+      },
+    };
+  },
+
+  /** GET /api/projects/{id}/members (adds e-mail to what the project list has). */
+  getProjectMembers: async (project: Project): Promise<ProjectMember[]> => {
+    if (USE_REAL_API) return projectTaskApi.getProjectMembers(project.id);
+    return project.members;
+  },
+
+  // POST /api/projects. The project is created in its team (no separate linking step).
+  createProject: async (input: CreateProjectInput): Promise<CreateProjectResult> => {
+    if (USE_REAL_API) return projectTaskApi.createProject(input);
     const projects = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects);
+    const members = input.members.map((m) => ({
+      user: m.user,
+      role: m.user.id === input.leaderId ? ('OWNER' as const) : ('MEMBER' as const),
+      position: m.position,
+      skills: m.skills,
+    }));
     const newProject: Project = {
-      ...projectData,
       id: `proj-${Date.now()}`,
+      workspaceId: 'ws-flowmate',
+      teamId: input.teamId,
+      name: input.name.trim(),
+      description: input.description.trim(),
+      goal: input.goal.trim(),
+      designText: input.designText.trim(),
+      startDate: input.startDate,
+      endDate: input.endDate,
+      projectType: input.projectType,
+      techStack: projectTechStack(members, input.additionalTechStack),
+      members,
+      leaderId: input.leaderId,
+      githubOrg: input.repositories[0]?.owner,
+      repositories: input.repositories,
       progress: 0,
       createdAt: new Date().toISOString(),
     };
-    const updated = [newProject, ...projects];
-    setStored(STORAGE_KEYS.PROJECTS, updated);
-    return newProject;
+    setStored(STORAGE_KEYS.PROJECTS, [newProject, ...projects]);
+    await api.linkProjectToTeam(input.teamId, newProject.id);
+    return { id: newProject.id, importedIssueCount: 0, issueImportFailed: false, repositories: input.repositories };
   },
 
   updateProject: async (id: string, updateData: Partial<Project>): Promise<Project> => {
@@ -286,15 +378,131 @@ export const api = {
 
   // GitHub organizations the user can pick at project creation.
   // No backend endpoint yet: real mode returns [] and the form falls back to typing the org name.
-  getGitHubOrganizations: async (): Promise<string[]> => {
-    if (USE_REAL_API) return [];
-    return [...MOCK_GITHUB_ORGS];
+  getGitHubInstallations: async (): Promise<GitHubInstallation[]> => {
+    if (USE_REAL_API) return githubApi.getInstallations();
+    return MOCK_GITHUB_ORGS.map((org, i) => ({
+      installationId: String(1000 + i),
+      accountLogin: org,
+      accountType: 'Organization',
+      repositories: MOCK_GITHUB_REPOS[org].map((name, j) => {
+        const r = makeRepository(org, name);
+        return { id: String((i + 1) * 100 + j), owner: org, name, fullName: r.fullName, htmlUrl: r.htmlUrl, private: false };
+      }),
+    }));
+  },
+
+  /** GitHub App install link (POST /api/github/installations/start). */
+  startGitHubInstallation: async (): Promise<string> => {
+    if (USE_REAL_API) return (await githubApi.startInstallation()).installUrl;
+    return 'https://github.com/apps/flowmate/installations/new';
+  },
+
+  // ---- AI issue drafts ----
+  /**
+   * Asks the AI for task drafts based on the project (design text, members' parts and stacks, dates).
+   * Nothing is saved: the user reviews the drafts, then registerIssueDrafts saves them.
+   */
+  generateIssueDrafts: async (project: Project): Promise<IssueDraft[]> => {
+    const members = project.members.map((m) => ({
+      user: m.user,
+      position: m.position || ('ETC' as const),
+      // the backend requires a stack per member; fall back to the part name
+      skills: m.skills && m.skills.length > 0 ? m.skills : [positionLabel(m.position) || '기타'],
+    }));
+    const leaderId = getProjectLeader(project)?.id || members[0]?.user.id || '';
+    const repoUrlByUserId = Object.fromEntries(
+      project.members.map((m) => [m.user.id, repoForPosition(project, m.position)?.htmlUrl])
+    );
+
+    if (USE_REAL_API) {
+      const dates = await projectTaskApi.getProjectDates(project.id);
+      const teamId = dates.teamId || project.teamId;
+      if (!teamId) throw new Error('프로젝트의 팀 정보를 찾을 수 없습니다.');
+      const designText = project.designText || (await projectTaskApi.getDesignText(teamId, project.id));
+      if (!designText.trim()) throw new Error('프로젝트 설계서가 비어 있어 AI가 업무를 만들 수 없습니다.');
+      return projectTaskApi.generateIssueDrafts({
+        name: project.name,
+        description: project.description || project.name,
+        goal: project.goal || project.name,
+        designText,
+        projectType: project.projectType,
+        startDate: dates.startDate,
+        endDate: dates.endDate,
+        teamId,
+        leaderId,
+        members,
+        repoUrlByUserId,
+      });
+    }
+
+    // Mock: a plausible draft per member part, spread over the project period
+    await new Promise((r) => setTimeout(r, 900));
+    const start = project.startDate || todayISO();
+    const end = project.endDate && project.endDate >= start ? project.endDate : daysFromTodayISO(30);
+    const span = Math.max(1, differenceInCalendarDays(parseISO(end), parseISO(start)));
+    const at = (fraction: number) => format(addDays(parseISO(start), Math.round(span * fraction)), 'yyyy-MM-dd');
+    const templates: Record<string, string[]> = {
+      BACKEND: ['DB 스키마 설계', '인증 API 구현', '핵심 도메인 API 구현'],
+      FRONTEND: ['화면 라우팅과 레이아웃 구성', '메인 화면 구현', 'API 연동'],
+      FULLSTACK: ['기능 단위 화면과 API 구현'],
+      DESIGN: ['와이어프레임 작성', 'UI 디자인 시안'],
+      PM: ['요구사항 정리와 일정 수립', '발표 자료 준비'],
+      INFRA: ['배포 파이프라인 구성'],
+      ETC: ['자료 조사'],
+    };
+    return members.flatMap((m, i) =>
+      (templates[m.position] || templates.ETC).map((title, j, all) => ({
+        key: `draft-${Date.now()}-${i}-${j}`,
+        title: `${title} (${m.skills.slice(0, 2).join(', ')})`,
+        description: `${project.name}: ${title}`,
+        priority: j === 0 ? ('HIGH' as const) : ('MEDIUM' as const),
+        assigneeId: m.user.id,
+        startDate: at(j / all.length),
+        dueDate: at((j + 1) / all.length),
+        estimatedHours: 4 + j * 2,
+        labels: [positionLabel(m.position) || '기타'],
+        createGithubIssue: Boolean(repoForPosition(project, m.position)),
+      }))
+    );
+  },
+
+  /** Saves confirmed drafts as tasks, then opens a GitHub issue for the ones marked for it. */
+  registerIssueDrafts: async (
+    project: Project,
+    drafts: IssueDraft[]
+  ): Promise<{ created: number; issuesCreated: number; issuesFailed: number }> => {
+    if (USE_REAL_API) notConnected(); // no bulk task / GitHub issue endpoint yet
+    let issuesCreated = 0;
+    let issuesFailed = 0;
+    for (const d of drafts) {
+      const assignee = project.members.find((m) => m.user.id === d.assigneeId)?.user;
+      const task = await api.createTask({
+        projectId: project.id,
+        title: d.title.trim(),
+        description: d.description.trim(),
+        priority: d.priority,
+        status: 'TODO',
+        assignee,
+        startDate: d.startDate || undefined,
+        dueDate: d.dueDate || undefined,
+        estimatedHours: d.estimatedHours,
+      });
+      if (!d.createGithubIssue) continue;
+      try {
+        await api.createGitHubIssue(task.id);
+        issuesCreated += 1;
+      } catch (err) {
+        console.error('GitHub issue creation failed:', err);
+        issuesFailed += 1;
+      }
+    }
+    return { created: drafts.length, issuesCreated, issuesFailed };
   },
 
   // 4. Tasks
   getTasks: async (projectId?: string): Promise<Task[]> => {
     // Backend lists tasks per team only (GET /api/teams/{id}): gather them across my teams
-    if (USE_REAL_API) return projectTaskApi.getTasks((await teamApi.getTeams()).map((t) => t.id), projectId);
+    if (USE_REAL_API) return forEachProject(projectId, (p) => projectTaskApi.getProjectTasks(p.id, p.name));
     const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
     if (projectId) {
       return tasks.filter((t) => t.projectId === projectId);
@@ -459,7 +667,10 @@ export const api = {
 
   // 6. Meetings & AI Recording
   getMeetings: async (projectId?: string): Promise<Meeting[]> => {
-    if (USE_REAL_API) return [];
+    if (USE_REAL_API) {
+      const list = await forEachProject(projectId, (p) => projectTaskApi.getProjectMeetings(p.id, p.name));
+      return list.sort((a, b) => (b.meetingDate || '').localeCompare(a.meetingDate || ''));
+    }
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     if (projectId) {
       return meetings.filter((m) => m.projectId === projectId);
@@ -468,7 +679,8 @@ export const api = {
   },
 
   getMeetingById: async (id: string): Promise<Meeting | undefined> => {
-    if (USE_REAL_API) return undefined;
+    // No meeting detail endpoint yet: the list item is all there is
+    if (USE_REAL_API) return (await api.getMeetings()).find((m) => m.id === id);
     const meetings = getStored<Meeting[]>(STORAGE_KEYS.MEETINGS, initialMeetings);
     return meetings.find((m) => m.id === id);
   },

@@ -21,6 +21,7 @@ import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { formatDate, formatTimeAgo } from '../../utils/formatters';
 import { safeHref } from '../../utils/github';
 import { isFeatureAvailable } from '../../services/features';
+import { TASK_STATUSES } from '../../utils/taskStatus';
 
 export interface TaskDetailModalProps {
   taskId: string | null;
@@ -285,10 +286,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
               disabled={!canEdit}
               className="w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary disabled:opacity-60 disabled:cursor-not-allowed font-mono focus:outline-none focus:ring-1 focus:ring-primary"
             >
-              <option value="TODO">TODO</option>
-              <option value="IN_PROGRESS">IN_PROGRESS</option>
-              <option value="IN_REVIEW">IN_REVIEW</option>
-              <option value="DONE">DONE</option>
+              {TASK_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </div>
 

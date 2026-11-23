@@ -18,6 +18,7 @@ import { getCollaboratorUsers, getProjectMemberUsers } from '../../utils/project
 import { Task, TaskStatus, TaskPriority } from '../../types';
 import { groupTasksByProject } from '../../utils/projectTeams';
 import { isFeatureAvailable } from '../../services/features';
+import { TASK_STATUSES } from '../../utils/taskStatus';
 import { NotConnected } from '../ui/NotConnected';
 
 export const TasksView: React.FC = () => {
@@ -162,10 +163,11 @@ export const TasksView: React.FC = () => {
             className="h-8 px-2.5 rounded-md border border-border bg-surface text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
           >
             <option value="ALL">전체 상태</option>
-            <option value="TODO">TODO</option>
-            <option value="IN_PROGRESS">IN_PROGRESS</option>
-            <option value="IN_REVIEW">IN_REVIEW</option>
-            <option value="DONE">DONE</option>
+            {TASK_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
           </select>
 
           {/* Priority filter */}

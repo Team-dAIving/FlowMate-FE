@@ -6,15 +6,19 @@ import { USE_REAL_API } from './http';
 const SERVER_FEATURES = {
   auth: true, // GET /api/auth/me, PATCH /api/auth/me/nickname, POST /api/auth/logout
   teams: true, // GET/POST /api/teams, GET /api/teams/{id}, GET /api/users/code/{code}
-  projects: true, // GET /api/projects (read)
-  projectWrite: false, // create / edit project, members, roles, repos, leader — no endpoint yet
+  projects: true, // GET /api/projects, GET /api/projects/{id}
+  projectCreate: true, // POST /api/projects
+  projectWrite: false, // edit a project after creation (info, members, roles, repos, leader): no endpoint yet
+  githubApp: true, // GET /api/github/installations, POST /api/github/installations/start
+  aiIssueDrafts: true, // POST /api/projects/issue-drafts (drafts only, nothing is saved)
   tasks: true, // task list via GET /api/teams/{id}, GET /api/tasks/{id}
-  taskWrite: false, // create task, change status/priority/assignee/dates — no endpoint yet
+  taskWrite: false, // create task, change status/priority/assignee/dates, register AI drafts: no endpoint yet
   taskComments: true, // POST /api/tasks/{id}/comments
   taskDelete: true, // DELETE /api/tasks/{id}
-  meetings: false, // recording upload, STT/AI analysis, action items
+  meetings: true, // GET /api/projects/{id}/meetings (list: title, summary, status, approved item count)
+  meetingWrite: false, // recording upload, STT/AI analysis, meeting detail with action items and transcript
   notifications: false,
-  github: false, // org list, issue creation
+  github: false, // creating a GitHub issue from a task
 } as const;
 
 export type Feature = keyof typeof SERVER_FEATURES;
