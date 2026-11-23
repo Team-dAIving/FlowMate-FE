@@ -16,7 +16,7 @@ import {
 } from '../types';
 import { http } from './http';
 import { normalizeSkills, partToPosition, positionToPart } from '../utils/positions';
-import { safeHref, toRepoRole } from '../utils/github';
+import { makeRepository, safeHref, toRepoRole } from '../utils/github';
 
 // Backend (FlowMate-BE, dev branch) endpoints for projects and tasks:
 //   GET    /api/projects                -> my projects
@@ -24,6 +24,9 @@ import { safeHref, toRepoRole } from '../utils/github';
 //   GET    /api/projects/{id}           -> detail (dates, leader, counts)
 //   POST   /api/projects/issue-drafts   -> AI task drafts from the project info (nothing is saved)
 //   GET    /api/projects/{id}/tasks     -> the project's tasks
+//   POST   /api/projects/{id}/tasks/manual -> one task, optional GitHub issue in a chosen repo
+//   GET    /api/projects/{id}/repositories -> repos connected to the project
+//   GET    /api/tasks                   -> all my tasks, grouped by project
 //   GET    /api/projects/{id}/members   -> members with e-mail, parts, stack
 //   GET    /api/projects/{id}/meetings  -> the project's meetings (summary, status)
 //   GET    /api/tasks/{taskId}          -> task detail incl. comments and GitHub info
@@ -113,6 +116,10 @@ const pick = <T extends string>(value: string | null | undefined, allowed: T[], 
   const v = (value || '').trim().toUpperCase() as T;
   return allowed.includes(v) ? v : fallback;
 };
+// The server stores task times in minutes (estimatedHours * 60 on registration)
+const minutesToHours = (m: number | null | undefined) =>
+  typeof m === 'number' && Number.isFinite(m) ? Math.round((m / 60) * 10) / 10 : undefined;
+
 const isLeaderRole = (role: string | null) => (role || '').trim().toLowerCase() === 'leader';
 
 const toUser = (id: number, nickname: string | null, avatarUrl: string | null): User => ({
@@ -184,8 +191,8 @@ export function toProjectTask(dto: ProjectTaskDto, projectId: string, projectNam
     status: pick(dto.status, STATUSES, 'TODO'),
     startDate: dto.startDate || undefined,
     dueDate: dto.dueDate || undefined,
-    estimatedHours: dto.estimatedTime ?? undefined,
-    actualHours: dto.actualTime ?? undefined,
+    estimatedHours: minutesToHours(dto.estimatedTime),
+    actualHours: minutesToHours(dto.actualTime),
     completedAt: dto.completedAt || undefined,
     commentCount: dto.commentCount ?? 0,
     githubIssue:
@@ -279,8 +286,8 @@ export function toTaskDetail(dto: TaskDetailDto): Task {
     status: pick(dto.status, STATUSES, 'TODO'),
     startDate: dto.startDate || undefined,
     dueDate: dto.dueDate || undefined,
-    estimatedHours: dto.estimatedTime ?? undefined,
-    actualHours: dto.actualTime ?? undefined,
+    estimatedHours: minutesToHours(dto.estimatedTime),
+    actualHours: minutesToHours(dto.actualTime),
     githubIssue:
       gh && gh.issueNumber != null
         ? {
@@ -352,6 +359,40 @@ interface ProjectDashboardDto {
   velocity: { date: string; completedTaskCount: number }[] | null;
 }
 
+interface ProjectRepositoryDto {
+  githubRepositoryId: number;
+  owner: string | null;
+  name: string | null;
+  htmlUrl: string | null;
+  role: string | null; // COMMON | BACKEND | FRONTEND | AI
+}
+interface CreateTaskResponseDto {
+  taskId: number;
+  title: string | null;
+  githubIssueRequested: boolean;
+  githubSyncStatus: string | null; // SYNCED | FAILED | NOT_LINKED
+  githubRepositoryId: number | null;
+  githubIssueNumber: number | null;
+  githubIssueUrl: string | null;
+  githubError: string | null;
+}
+export interface ManualTaskInput {
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  assigneeId?: string;
+  dueDate: string;
+  estimatedHours?: number;
+  createGithubIssue: boolean;
+  githubRepositoryId?: string;
+}
+export interface ManualTaskResult {
+  taskId: string;
+  issueUrl?: string;
+  issueFailed: boolean;
+  issueError?: string;
+}
+
 interface ConnectedRepositoryDto {
   githubRepositoryId: number;
   installationId: number;
@@ -420,7 +461,7 @@ const projectBody = (input: Omit<CreateProjectInput, 'repositories' | 'additiona
   type: input.projectType,
   startDate: input.startDate,
   endDate: input.endDate,
-  teamId: toId(input.teamId),
+  ...(input.teamId ? { teamId: toId(input.teamId) } : {}),
   leaderUserId: toId(input.leaderId),
 });
 
@@ -478,6 +519,95 @@ export const projectTaskApi = {
       issueImportFailed: res.githubIssueImportStatus === 'FAILED',
       repositories: (res.repositories || []).map(toConnectedRepo),
     };
+  },
+
+  /**
+   * POST /api/projects/{id}/tasks: registers confirmed drafts as tasks, then opens GitHub issues for
+   * the marked ones. Without githubRepositoryId the server picks the repo of the assignee's part,
+   * else the common repo. Tasks are saved even when a GitHub issue fails (reported per task).
+   */
+  registerIssueDrafts: async (
+    projectId: string,
+    drafts: IssueDraft[]
+  ): Promise<{ created: number; issuesCreated: number; issuesFailed: number }> => {
+    const res = await http<{ createdTaskCount: number; createdGithubIssueCount: number; failedGithubIssueCount: number }>(
+      `/api/projects/${encodeURIComponent(projectId)}/tasks`,
+      {
+        method: 'POST',
+        timeoutMs: 120000, // one GitHub call per issue
+        json: {
+          issues: drafts.map((d) => ({
+            title: d.title.trim(),
+            description: d.description.trim(),
+            priority: d.priority,
+            ...(d.assigneeId ? { assigneeId: toId(d.assigneeId) } : {}),
+            startDate: d.startDate,
+            dueDate: d.dueDate,
+            ...(d.estimatedHours != null && d.estimatedHours > 0 ? { estimatedHours: d.estimatedHours } : {}),
+            labels: [...new Set(d.labels.map((l) => l.trim().slice(0, 50)).filter(Boolean))].slice(0, 20),
+            createGithubIssue: d.createGithubIssue,
+          })),
+        },
+      }
+    );
+    return {
+      created: res?.createdTaskCount ?? drafts.length,
+      issuesCreated: res?.createdGithubIssueCount ?? 0,
+      issuesFailed: res?.failedGithubIssueCount ?? 0,
+    };
+  },
+
+  /** GET /api/projects/{id}/repositories: the repos connected to the project, with their role. */
+  getProjectRepositories: async (projectId: string): Promise<ProjectRepository[]> => {
+    const res = await http<{ repositories?: ProjectRepositoryDto[] }>(
+      `/api/projects/${encodeURIComponent(projectId)}/repositories`
+    );
+    return (res?.repositories || [])
+      .filter((r) => r.owner && r.name)
+      .map((r) => ({
+        ...makeRepository(r.owner!, r.name!, toRepoRole(r.role)),
+        htmlUrl: safeHref(r.htmlUrl || undefined) || makeRepository(r.owner!, r.name!).htmlUrl,
+        githubRepositoryId: String(r.githubRepositoryId),
+      }));
+  },
+
+  /**
+   * POST /api/projects/{id}/tasks/manual: one task, optionally with a GitHub issue in the given repo
+   * (without githubRepositoryId the server picks the assignee's part repo, else the common one).
+   * The server sets the start date to today (Seoul). The task is kept even if the issue fails.
+   */
+  createManualTask: async (projectId: string, input: ManualTaskInput): Promise<ManualTaskResult> => {
+    const res = await http<CreateTaskResponseDto>(`/api/projects/${encodeURIComponent(projectId)}/tasks/manual`, {
+      method: 'POST',
+      timeoutMs: 60000, // includes the GitHub call
+      json: {
+        title: input.title.trim(),
+        description: input.description.trim(),
+        priority: input.priority,
+        ...(input.assigneeId ? { assigneeId: toId(input.assigneeId) } : {}),
+        dueDate: input.dueDate,
+        ...(input.estimatedHours != null && input.estimatedHours > 0 ? { estimatedHours: input.estimatedHours } : {}),
+        labels: [],
+        createGithubIssue: input.createGithubIssue,
+        ...(input.createGithubIssue && input.githubRepositoryId ? { githubRepositoryId: toId(input.githubRepositoryId) } : {}),
+      },
+    });
+    return {
+      taskId: String(res.taskId),
+      issueUrl: safeHref(res.githubIssueUrl || undefined),
+      issueFailed: res.githubIssueRequested && res.githubSyncStatus === 'FAILED',
+      issueError: res.githubError || undefined,
+    };
+  },
+
+  /** GET /api/tasks: every task of every project I'm in, in one request. */
+  getMyTasks: async (): Promise<Task[]> => {
+    const res = await http<{ projects?: { projectId: number; projectName: string | null; tasks?: ProjectTaskDto[] }[] }>(
+      '/api/tasks'
+    );
+    return (res?.projects || []).flatMap((p) =>
+      (p.tasks || []).map((t) => toProjectTask(t, String(p.projectId), p.projectName || undefined))
+    );
   },
 
   /** GET /api/projects/{id}: dates, progress, status counts, workload, 7-day velocity. */

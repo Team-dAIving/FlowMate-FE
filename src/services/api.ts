@@ -16,6 +16,7 @@ import {
   IssueDraft,
   ProjectDashboard,
   ProjectMember,
+  ProjectRepository,
 } from '../types';
 import {
   currentUser,
@@ -31,7 +32,7 @@ import {
 import { ApiError, USE_REAL_API } from './http';
 import { teamApi } from './teamApi';
 import { authApi } from './authApi';
-import { CreateProjectResult, projectTaskApi } from './projectTaskApi';
+import { CreateProjectResult, ManualTaskInput, ManualTaskResult, projectTaskApi } from './projectTaskApi';
 import { githubApi } from './githubApi';
 import { makeRepository, repoForPosition } from '../utils/github';
 import { positionLabel, projectTechStack } from '../utils/positions';
@@ -250,6 +251,38 @@ export const api = {
     };
   },
 
+  /** Repos connected to the project (GET /api/projects/{id}/repositories); mock: the project's own list. */
+  getProjectRepositories: async (project: Project): Promise<ProjectRepository[]> => {
+    if (USE_REAL_API) return projectTaskApi.getProjectRepositories(project.id);
+    return project.repositories || [];
+  },
+
+  /**
+   * Manual task with an optional GitHub issue in a chosen repo (POST /api/projects/{id}/tasks/manual).
+   * githubRepositoryId: the repo's githubRepositoryId (server) or its id (mock).
+   */
+  createManualTask: async (project: Project, input: ManualTaskInput): Promise<ManualTaskResult> => {
+    if (USE_REAL_API) return projectTaskApi.createManualTask(project.id, input);
+    const assignee = project.members.find((m) => m.user.id === input.assigneeId)?.user;
+    const task = await api.createTask({
+      projectId: project.id,
+      title: input.title.trim(),
+      description: input.description.trim(),
+      priority: input.priority,
+      assignee,
+      startDate: todayISO(),
+      dueDate: input.dueDate,
+      estimatedHours: input.estimatedHours,
+    });
+    if (!input.createGithubIssue) return { taskId: task.id, issueFailed: false };
+    try {
+      const withIssue = await api.createGitHubIssue(task.id, input.githubRepositoryId);
+      return { taskId: task.id, issueUrl: withIssue.githubIssue?.htmlUrl, issueFailed: false };
+    } catch (err) {
+      return { taskId: task.id, issueFailed: true, issueError: err instanceof Error ? err.message : undefined };
+    }
+  },
+
   /** GET /api/projects/{id}/members (adds e-mail to what the project list has). */
   getProjectMembers: async (project: Project): Promise<ProjectMember[]> => {
     if (USE_REAL_API) return projectTaskApi.getProjectMembers(project.id);
@@ -286,7 +319,7 @@ export const api = {
       createdAt: new Date().toISOString(),
     };
     setStored(STORAGE_KEYS.PROJECTS, [newProject, ...projects]);
-    await api.linkProjectToTeam(input.teamId, newProject.id);
+    if (input.teamId) await api.linkProjectToTeam(input.teamId, newProject.id);
     return { id: newProject.id, importedIssueCount: 0, issueImportFailed: false, repositories: input.repositories };
   },
 
@@ -416,9 +449,8 @@ export const api = {
 
     if (USE_REAL_API) {
       const dates = await projectTaskApi.getProjectDates(project.id);
-      const teamId = dates.teamId || project.teamId;
-      if (!teamId) throw new Error('프로젝트의 팀 정보를 찾을 수 없습니다.');
-      const designText = project.designText || (await projectTaskApi.getDesignText(teamId, project.id));
+      const teamId = dates.teamId || project.teamId; // none for a personal project
+      const designText = project.designText || (teamId ? await projectTaskApi.getDesignText(teamId, project.id) : '');
       if (!designText.trim()) throw new Error('프로젝트 설계서가 비어 있어 AI가 업무를 만들 수 없습니다.');
       return projectTaskApi.generateIssueDrafts({
         name: project.name,
@@ -471,7 +503,7 @@ export const api = {
     project: Project,
     drafts: IssueDraft[]
   ): Promise<{ created: number; issuesCreated: number; issuesFailed: number }> => {
-    if (USE_REAL_API) notConnected(); // no bulk task / GitHub issue endpoint yet
+    if (USE_REAL_API) return projectTaskApi.registerIssueDrafts(project.id, drafts);
     let issuesCreated = 0;
     let issuesFailed = 0;
     for (const d of drafts) {
@@ -502,7 +534,11 @@ export const api = {
   // 4. Tasks
   getTasks: async (projectId?: string): Promise<Task[]> => {
     // Backend lists tasks per team only (GET /api/teams/{id}): gather them across my teams
-    if (USE_REAL_API) return forEachProject(projectId, (p) => projectTaskApi.getProjectTasks(p.id, p.name));
+    if (USE_REAL_API) {
+      // one request for everything (GET /api/tasks); one project's tasks via its own endpoint
+      if (!projectId) return projectTaskApi.getMyTasks();
+      return forEachProject(projectId, (p) => projectTaskApi.getProjectTasks(p.id, p.name));
+    }
     const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
     if (projectId) {
       return tasks.filter((t) => t.projectId === projectId);
@@ -624,7 +660,7 @@ export const api = {
   },
 
   // 5. GitHub Integration
-  createGitHubIssue: async (taskId: string): Promise<Task> => {
+  createGitHubIssue: async (taskId: string, repoId?: string): Promise<Task> => {
     if (USE_REAL_API) notConnected();
     const tasks = getStored<Task[]>(STORAGE_KEYS.TASKS, initialTasks);
     const index = tasks.findIndex((t) => t.id === taskId);
@@ -634,7 +670,9 @@ export const api = {
     // The issue goes to the repo of the assignee's part (백엔드 task -> 백엔드 repo), else a shared/first repo
     const project = getStored<Project[]>(STORAGE_KEYS.PROJECTS, initialProjects).find((p) => p.id === task.projectId);
     const assigneePosition = project?.members.find((m) => m.user.id === task.assignee?.id)?.position;
-    const repo = project ? repoForPosition(project, assigneePosition) : undefined;
+    const repo = project
+      ? (repoId && project.repositories?.find((r) => r.id === repoId)) || repoForPosition(project, assigneePosition)
+      : undefined;
     if (!repo) throw new Error('이 프로젝트에 연결된 GitHub 레포지토리가 없습니다.');
     const issueNumber = Math.floor(Math.random() * 80) + 20;
     const githubIssue = {

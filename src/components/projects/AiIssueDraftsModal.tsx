@@ -8,6 +8,7 @@ import { api } from '../../services/api';
 import { isFeatureAvailable } from '../../services/features';
 import { useTaskStore } from '../../store/useTaskStore';
 import { repoForPosition } from '../../utils/github';
+import { USE_REAL_API } from '../../services/http';
 
 export interface AiIssueDraftsModalProps {
   isOpen: boolean;
@@ -44,11 +45,14 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
   const projectRef = useRef(project);
   projectRef.current = project;
 
-  const canRegister = isFeatureAvailable('taskWrite');
-  const hasRepos = (project.repositories || []).length > 0;
-  // A GitHub issue needs a repo for the assignee's part (or a common/first repo)
+  const canRegister = isFeatureAvailable('aiIssueRegister');
+  // Server: the project list has no repos; the server opens the issue in the repo of the assignee's part,
+  // else the common repo (and says so if there is none). Mock: decide here from the project's repos.
+  const serverPicksRepo = USE_REAL_API;
+  const hasRepos = serverPicksRepo || (project.repositories || []).length > 0;
   const issueRepoFor = (assigneeId?: string) =>
     repoForPosition(project, project.members.find((m) => m.user.id === assigneeId)?.position);
+  const canOpenIssue = (assigneeId?: string) => serverPicksRepo || Boolean(issueRepoFor(assigneeId));
 
   const generate = useCallback(async () => {
     const mine = ++seq.current;
@@ -59,7 +63,7 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
       const list = await api.generateIssueDrafts(projectRef.current);
       if (mine !== seq.current) return;
       const repoCount = (projectRef.current.repositories || []).length;
-      setDrafts(list.map((d) => ({ ...d, createGithubIssue: d.createGithubIssue && repoCount > 0 })));
+      setDrafts(list.map((d) => ({ ...d, createGithubIssue: d.createGithubIssue && (USE_REAL_API || repoCount > 0) })));
       setPhase('review');
     } catch (err) {
       if (mine !== seq.current) return;
@@ -99,6 +103,8 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
     if (phase === 'saving') return;
     const empty = drafts.find((d) => !d.title.trim());
     if (empty) return setSaveError('제목이 비어 있는 업무가 있습니다.');
+    const noDates = drafts.find((d) => !d.startDate || !d.dueDate);
+    if (noDates) return setSaveError(`"${noDates.title}"의 시작일과 마감일을 입력해주세요.`);
     const badDates = drafts.find((d) => d.startDate && d.dueDate && d.dueDate < d.startDate);
     if (badDates) return setSaveError(`"${badDates.title}"의 마감일이 시작일보다 빠릅니다.`);
     setPhase('saving');
@@ -211,7 +217,7 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
                         update(d.key, {
                           assigneeId,
                           // no repo for the new assignee's part: can't open an issue
-                          createGithubIssue: d.createGithubIssue && Boolean(issueRepoFor(assigneeId)),
+                          createGithubIssue: d.createGithubIssue && canOpenIssue(assigneeId),
                         });
                       }}
                       aria-label="담당자"
@@ -260,12 +266,18 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
                     )}
                     <label
                       className="ml-auto flex items-center gap-1 text-[11px] text-text-secondary"
-                      title={repo ? `${repo.fullName}에 이슈를 만듭니다` : '이 담당자의 파트에 연결된 레포가 없습니다'}
+                      title={
+                        serverPicksRepo
+                          ? '담당자 파트의 레포, 없으면 공통 레포에 이슈를 만듭니다'
+                          : repo
+                          ? `${repo.fullName}에 이슈를 만듭니다`
+                          : '이 담당자의 파트에 연결된 레포가 없습니다'
+                      }
                     >
                       <input
                         type="checkbox"
                         checked={d.createGithubIssue}
-                        disabled={!repo}
+                        disabled={!canOpenIssue(d.assigneeId)}
                         onChange={(e) => update(d.key, { createGithubIssue: e.target.checked })}
                       />
                       <Github className="h-3 w-3" />

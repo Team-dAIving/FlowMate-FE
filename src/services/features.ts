@@ -11,8 +11,11 @@ const SERVER_FEATURES = {
   projectWrite: false, // edit a project after creation (info, members, roles, repos, leader): no endpoint yet
   githubApp: true, // GET /api/github/installations, POST /api/github/installations/start
   aiIssueDrafts: true, // POST /api/projects/issue-drafts (drafts only, nothing is saved)
+  aiIssueRegister: true, // POST /api/projects/{id}/tasks (bulk-register drafts + GitHub issues)
+  personalProject: false, // a project without a team: POST /api/projects still requires teamId
   tasks: true, // task list via GET /api/teams/{id}, GET /api/tasks/{id}
-  taskWrite: false, // create task, change status/priority/assignee/dates, register AI drafts: no endpoint yet
+  taskCreate: true, // POST /api/projects/{id}/tasks/manual (+ optional GitHub issue in a chosen repo)
+  taskWrite: false, // change status/priority/assignee/dates of an existing task: no endpoint yet
   taskComments: true, // POST /api/tasks/{id}/comments
   taskDelete: true, // DELETE /api/tasks/{id}
   meetings: true, // GET /api/projects/{id}/meetings (list: title, summary, status, approved item count)

@@ -150,7 +150,7 @@ export interface CreateProjectInput {
   projectType: ProjectType;
   startDate: string;
   endDate: string;
-  teamId: string;
+  teamId?: string; // none = personal project (only me)
   leaderId: string;
   members: { user: User; position: ProjectPosition; skills: string[] }[];
   additionalTechStack: string[];

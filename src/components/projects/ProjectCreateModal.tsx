@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { addDays, format } from 'date-fns';
-import { ExternalLink, GitBranch, Github, Loader2, Lock, Plus, RefreshCw, UserMinus, X } from 'lucide-react';
+import { ExternalLink, Github, Loader2, Lock, Plus, RefreshCw, Trash2, UserMinus, X } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Input, Textarea } from '../ui/Input';
@@ -58,6 +58,17 @@ export function buildMembers(
 
 const todayISO = () => format(new Date(), 'yyyy-MM-dd');
 
+// Team select value for a project without a team
+const PERSONAL = '__personal__';
+
+// One "connect this repo as <role>" row (repoId '' = not picked yet)
+interface RepoRow {
+  key: string;
+  role: RepoRole;
+  repoId: string;
+}
+let rowSeq = 0;
+
 type GitHubState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
@@ -83,7 +94,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   const [leaderId, setLeaderId] = useState('');
   const [github, setGithub] = useState<GitHubState>({ status: 'loading' });
   const [installationId, setInstallationId] = useState('');
-  const [repos, setRepos] = useState<ProjectRepository[]>([]);
+  const [repoRows, setRepoRows] = useState<RepoRow[]>([]);
   const [isConnecting, setIsConnecting] = useState(false);
   const [waitingForInstall, setWaitingForInstall] = useState(false);
   const [connectError, setConnectError] = useState('');
@@ -110,18 +121,22 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
     setRoles({});
     setLeaderId('');
     setInstallationId('');
-    setRepos([]);
+    setRepoRows([]);
     setWaitingForInstall(false);
     setConnectError('');
     setSubmitError('');
   }, [isOpen, defaultTeamId]);
 
-  // A team is required: preselect the only/first team when none is chosen
+  // Team or personal project. Preselect the first team (or personal) when nothing valid is chosen.
+  const personalAllowed = isFeatureAvailable('personalProject');
+  const isPersonal = selectedTeamId === PERSONAL;
   useEffect(() => {
-    if (isOpen && !teams.some((t) => t.id === selectedTeamId) && teams.length > 0) setSelectedTeamId(teams[0].id);
-  }, [isOpen, teams, selectedTeamId]);
+    if (!isOpen || teams.some((t) => t.id === selectedTeamId)) return;
+    if (isPersonal && personalAllowed) return;
+    setSelectedTeamId(teams[0]?.id ?? (personalAllowed ? PERSONAL : ''));
+  }, [isOpen, teams, selectedTeamId, isPersonal, personalAllowed]);
 
-  const selectedTeam = teams.find((t) => t.id === selectedTeamId);
+  const selectedTeam = isPersonal ? undefined : teams.find((t) => t.id === selectedTeamId);
   const members = buildMembers(currentUser, selectedTeam?.members ?? [], excluded, roles);
   const leftOut = (selectedTeam?.members ?? []).filter((tm) => excluded.has(tm.id) && tm.id !== currentUser?.id);
 
@@ -179,13 +194,29 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
 
   const installations = github.status === 'ready' ? github.installations : [];
   const installation = installations.find((i) => i.installationId === installationId);
-  const pickedIds = new Set(repos.map((r) => `${r.installationId}:${r.githubRepositoryId}`));
-
-  const addRepo = (role: RepoRole, repoId: string) => {
-    const repo = installation?.repositories.find((r) => r.id === repoId);
-    if (!installation || !repo || repos.length >= REPOS_MAX) return;
-    setRepos((prev) => [...prev, repoFromInstallation(installation, repo, role)]);
+  // Rows belong to the selected organization: switching it starts the list over
+  const selectInstallation = (id: string) => {
+    setInstallationId(id);
+    setRepoRows([]);
   };
+  const usedCommon = repoRows.some((r) => r.role === 'COMMON');
+  const addRow = () => {
+    if (repoRows.length >= REPOS_MAX) return;
+    // Suggest a role nobody has used yet (common at most once)
+    const used = new Set(repoRows.map((r) => r.role));
+    const role = REPO_ROLES.find((r) => !used.has(r.id))?.id ?? 'BACKEND';
+    setRepoRows((prev) => [...prev, { key: `row-${++rowSeq}`, role, repoId: '' }]);
+  };
+  const updateRow = (key: string, patch: Partial<RepoRow>) =>
+    setRepoRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  // What gets sent: rows with a repo picked
+  const repos: ProjectRepository[] = installation
+    ? repoRows.flatMap((row) => {
+        const repo = installation.repositories.find((r) => r.id === row.repoId);
+        return repo ? [repoFromInstallation(installation, repo, row.role)] : [];
+      })
+    : [];
 
   // ---- members ----
   const updateMember = (userId: string, position: ProjectPosition | undefined, skills: string[]) =>
@@ -213,10 +244,12 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
     if (!designText.trim()) return fail('프로젝트 설계서를 입력해주세요. AI 업무 생성에도 쓰입니다.');
     if (!startDate || !endDate) return fail('시작일과 종료 예정일을 입력해주세요.');
     if (endDate < startDate) return fail('종료 예정일이 시작일보다 빠릅니다.');
-    if (!selectedTeam) return fail('프로젝트를 만들 팀을 골라주세요.');
+    if (!selectedTeam && !(isPersonal && personalAllowed)) return fail('프로젝트를 만들 팀을 골라주세요.');
     if (!currentUser) return fail('로그인 정보를 확인할 수 없습니다.');
     const noRole = members.find((m) => !m.position || m.skills.length === 0);
     if (noRole) return fail(`${noRole.user.name}님의 포지션과 기술 스택을 1개 이상 골라주세요.`);
+    if (repoRows.some((r) => !r.repoId)) return fail('저장소를 고르지 않은 줄이 있습니다. 저장소를 고르거나 삭제해주세요.');
+    if (repoRows.filter((r) => r.role === 'COMMON').length > 1) return fail('공통 저장소는 1개만 연결할 수 있습니다.');
 
     setIsLoading(true);
     setSubmitError('');
@@ -229,7 +262,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
         projectType,
         startDate,
         endDate,
-        teamId: selectedTeam.id,
+        teamId: selectedTeam?.id,
         leaderId: effectiveLeaderId,
         members: members.map((m) => ({ user: m.user, position: m.position!, skills: m.skills })),
         additionalTechStack: normalizeSkills(extraStackInput.split(',')),
@@ -342,35 +375,37 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
           />
         </div>
 
-        {/* Team: required, members come from it */}
+        {/* Team project (members come from the team) or personal project (just me) */}
         <div>
           <label htmlFor="project-team" className="block text-xs font-medium text-text-secondary mb-1">
             소속 팀 (Team)
           </label>
-          {teams.length === 0 ? (
-            <p className="text-[11px] text-amber-600">먼저 팀을 만들어주세요. 프로젝트는 팀 안에서 만들어집니다.</p>
-          ) : (
-            <>
-              <select
-                id="project-team"
-                value={selectedTeamId}
-                onChange={(e) => {
-                  setSelectedTeamId(e.target.value);
-                  setExcluded(new Set());
-                }}
-                className={selectClass}
-              >
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-[11px] text-text-muted">
-                프로젝트 멤버는 이 팀의 팀원 중에서 정합니다. 새 사람은 팀에 먼저 초대해주세요.
-              </p>
-            </>
-          )}
+          <select
+            id="project-team"
+            value={selectedTeamId}
+            onChange={(e) => {
+              setSelectedTeamId(e.target.value);
+              setExcluded(new Set());
+            }}
+            className={selectClass}
+          >
+            {teams.length === 0 && !personalAllowed && <option value="">팀이 없습니다</option>}
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+            <option value={PERSONAL} disabled={!personalAllowed}>
+              {personalAllowed ? '팀 없음 (개인 프로젝트)' : '팀 없음 (개인 프로젝트, 서버 준비 중)'}
+            </option>
+          </select>
+          <p className="mt-1 text-[11px] text-text-muted">
+            {isPersonal
+              ? '혼자 진행하는 프로젝트입니다. 멤버는 나 한 명이고, 리더도 내가 됩니다.'
+              : teams.length === 0
+              ? '먼저 팀을 만들어주세요. 개인 프로젝트는 서버가 지원하면 바로 쓸 수 있습니다.'
+              : '프로젝트 멤버는 이 팀의 팀원 중에서 정합니다. 새 사람은 팀에 먼저 초대해주세요.'}
+          </p>
         </div>
 
         {/* Members: per-member position & tech stack */}
@@ -455,12 +490,12 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
           onChange={(e) => setExtraStackInput(e.target.value)}
         />
 
-        {/* GitHub: FlowMate GitHub App installation -> organization -> repos per part */}
-        <div className="space-y-2 rounded-lg border border-border p-3">
+        {/* GitHub 연결: organization (GitHub App installation) -> repos to connect, one row per repo */}
+        <div className="space-y-3 rounded-lg border border-border p-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-text-secondary flex items-center gap-1.5">
+            <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
               <Github className="h-3.5 w-3.5" />
-              GitHub 레포 연결 (선택)
+              GitHub 연결 <span className="font-normal text-text-muted">(선택)</span>
             </span>
             {github.status === 'ready' && installations.length > 0 && (
               <button
@@ -493,7 +528,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
             <div className="space-y-2">
               <p className="text-[11px] text-text-secondary">
                 GitHub가 아직 연결되지 않았습니다. FlowMate GitHub 앱을 Organization(또는 내 계정)에 설치하면
-                레포를 고를 수 있고, 레포의 기존 이슈를 업무로 불러옵니다.
+                저장소를 고를 수 있고, 기존 GitHub 이슈를 프로젝트 업무로 가져옵니다.
               </p>
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void connectGitHub()} isLoading={isConnecting} className="gap-1.5">
@@ -514,98 +549,105 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
               )}
             </div>
           ) : (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <select
-                  aria-label="GitHub Organization"
-                  value={installationId}
-                  onChange={(e) => setInstallationId(e.target.value)}
-                  className={selectClass}
-                >
-                  {installations.map((i) => (
-                    <option key={i.installationId} value={i.installationId}>
-                      {i.accountLogin}
-                      {i.accountType === 'User' ? ' (개인 계정)' : ''} · 레포 {i.repositories.length}개
-                    </option>
-                  ))}
-                </select>
+            <>
+              {/* Organization */}
+              <div>
+                <label htmlFor="project-org" className="block text-[11px] font-medium text-text-secondary mb-1">
+                  Organization
+                </label>
+                <div className="flex items-center gap-2">
+                  <select
+                    id="project-org"
+                    value={installationId}
+                    onChange={(e) => selectInstallation(e.target.value)}
+                    className={selectClass}
+                  >
+                    {installations.map((i) => (
+                      <option key={i.installationId} value={i.installationId}>
+                        {i.accountLogin}
+                        {i.accountType === 'User' ? ' (개인 계정)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void connectGitHub()}
+                    disabled={isConnecting}
+                    className="shrink-0 h-8 px-2.5 rounded-md border border-border text-[11px] text-text-secondary hover:bg-surface-hover flex items-center gap-1 disabled:opacity-50"
+                    title="GitHub에서 FlowMate 앱이 접근할 저장소를 바꾸거나 다른 Organization에 설치합니다"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    저장소 권한 변경
+                  </button>
+                </div>
+              </div>
+
+              {/* Repositories to connect */}
+              <div className="space-y-1.5">
+                <span className="block text-[11px] font-medium text-text-secondary">연결할 저장소</span>
+                {repoRows.length === 0 && (
+                  <p className="text-[11px] text-text-muted">아직 연결할 저장소가 없습니다. 아래에서 추가하세요.</p>
+                )}
+                {repoRows.map((row) => {
+                  // Repos already picked in other rows can't be picked again
+                  const takenElsewhere = new Set(repoRows.filter((r) => r.key !== row.key).map((r) => r.repoId));
+                  const options = (installation?.repositories || []).filter((r) => !takenElsewhere.has(r.id));
+                  return (
+                    <div key={row.key} className="flex items-center gap-2">
+                      <select
+                        aria-label="저장소 역할"
+                        value={row.role}
+                        onChange={(e) => updateRow(row.key, { role: e.target.value as RepoRole })}
+                        className="h-8 w-32 shrink-0 rounded-md border border-border bg-surface px-2 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        {REPO_ROLES.map((r) => (
+                          <option key={r.id} value={r.id} disabled={r.id === 'COMMON' && usedCommon && row.role !== 'COMMON'}>
+                            역할: {r.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        aria-label="저장소"
+                        value={row.repoId}
+                        onChange={(e) => updateRow(row.key, { repoId: e.target.value })}
+                        className={`${selectClass} font-mono ${row.repoId ? '' : 'text-text-muted'}`}
+                      >
+                        <option value="">저장소 선택…</option>
+                        {options.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                            {r.private ? ' (private)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setRepoRows((prev) => prev.filter((r) => r.key !== row.key))}
+                        className="shrink-0 h-8 px-2.5 rounded-md border border-border text-[11px] text-text-secondary hover:text-red-500 hover:border-red-300 flex items-center gap-1"
+                        aria-label="이 저장소 삭제"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        삭제
+                      </button>
+                    </div>
+                  );
+                })}
                 <button
                   type="button"
-                  onClick={() => void connectGitHub()}
-                  disabled={isConnecting}
-                  className="shrink-0 h-8 px-2 rounded-md border border-border text-[11px] text-text-secondary hover:bg-surface-hover flex items-center gap-1 disabled:opacity-50"
-                  title="다른 Organization에 GitHub 앱 설치"
+                  onClick={addRow}
+                  disabled={repoRows.length >= REPOS_MAX || (installation?.repositories.length ?? 0) <= repoRows.length}
+                  className="h-8 px-3 rounded-md border border-dashed border-border text-[11px] text-text-secondary hover:bg-surface-hover flex items-center gap-1 disabled:opacity-40"
                 >
-                  <ExternalLink className="h-3 w-3" />
-                  다른 계정 연결
+                  <Plus className="h-3.5 w-3.5" />
+                  저장소 추가
                 </button>
               </div>
 
-              {REPO_ROLES.map((role) => {
-                const roleRepos = repos.filter((r) => r.role === role.id);
-                const full = (role.max !== undefined && roleRepos.length >= role.max) || repos.length >= REPOS_MAX;
-                const options = (installation?.repositories || []).filter(
-                  (r) => !pickedIds.has(`${installation!.installationId}:${r.id}`)
-                );
-                return (
-                  <div key={role.id} className="flex items-start gap-2">
-                    <span
-                      className="mt-1 w-16 shrink-0 text-center text-[10px] font-semibold px-1.5 py-0.5 rounded text-white"
-                      style={{ backgroundColor: role.color }}
-                    >
-                      {role.label}
-                    </span>
-                    <div className="flex-1 min-w-0 space-y-1">
-                      {roleRepos.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {roleRepos.map((r) => (
-                            <span
-                              key={`${r.installationId}:${r.githubRepositoryId}`}
-                              className="h-6 pl-2 pr-1 rounded-full border border-border bg-surface text-[11px] font-mono text-text-primary flex items-center gap-1"
-                            >
-                              <GitBranch className="h-3 w-3 text-text-muted" />
-                              {r.fullName}
-                              <button
-                                type="button"
-                                onClick={() => setRepos((prev) => prev.filter((x) => x !== r))}
-                                aria-label={`${r.fullName} 제거`}
-                                className="p-0.5 rounded-full text-text-muted hover:text-red-500"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {!full && (
-                        <select
-                          aria-label={`${role.label} 레포지토리 추가`}
-                          value=""
-                          onChange={(e) => e.target.value && addRepo(role.id, e.target.value)}
-                          disabled={options.length === 0}
-                          className="h-7 w-full rounded-md border border-border bg-surface px-2 text-[11px] font-mono text-text-primary disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-primary"
-                        >
-                          <option value="">
-                            {options.length === 0 ? '고를 수 있는 레포가 없습니다' : `${role.label} 레포 선택…`}
-                          </option>
-                          {options.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.fullName}
-                              {r.private ? ' (private)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
               <p className="text-[11px] text-text-muted flex items-start gap-1">
                 <Lock className="h-3 w-3 mt-0.5 shrink-0" />
-                GitHub 앱에 권한을 준 레포만 보입니다. 공통 레포는 1개까지, 전체 {REPOS_MAX}개까지 연결할 수 있고,
-                연결한 레포의 기존 이슈는 업무로 불러옵니다.
+                기존 GitHub 이슈를 프로젝트 업무로 가져옵니다. GitHub 앱에 권한을 준 저장소만 보이며, 공통 저장소는 1개까지 연결할 수 있습니다.
               </p>
-            </div>
+            </>
           )}
           {connectError && <p className="text-[11px] text-red-500">{connectError}</p>}
         </div>
@@ -620,7 +662,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
           <Button type="button" variant="outline" size="sm" onClick={onClose}>
             취소
           </Button>
-          <Button type="submit" size="sm" isLoading={isLoading} disabled={teams.length === 0}>
+          <Button type="submit" size="sm" isLoading={isLoading} disabled={teams.length === 0 && !personalAllowed}>
             프로젝트 생성
           </Button>
         </div>
