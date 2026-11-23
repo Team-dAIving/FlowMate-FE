@@ -48,7 +48,6 @@ export const githubApi = {
     );
     return (res?.installations || []).map(toInstallation);
   },
-  // teamId goes along so the server can tie the install to the team (ignored if it doesn't need it)
   startInstallation: async (teamId: string): Promise<{ installUrl: string; expiresAt: string }> =>
     http<{ installUrl: string; expiresAt: string }>(
       `/api/github/installations/start?${new URLSearchParams({ teamId })}`,

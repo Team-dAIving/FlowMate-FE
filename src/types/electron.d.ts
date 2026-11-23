@@ -10,6 +10,16 @@ export interface ElectronAuthAPI {
   onResult: (callback: (result: AuthResult) => void) => () => void;
 }
 
+export interface GitHubInstallCallback {
+  installation_id: string;
+  state: string;
+}
+
+export interface ElectronGitHubInstallAPI {
+  takeCallback: () => Promise<GitHubInstallCallback | null>;
+  onCallbackAvailable: (callback: () => void) => () => void;
+}
+
 export interface ElectronAPI {
   isElectron: boolean;
   platform: string;
@@ -21,6 +31,7 @@ export interface ElectronAPI {
   closeWindow: () => void;
   onCommandPalette: (callback: () => void) => () => void;
   auth: ElectronAuthAPI;
+  githubInstall: ElectronGitHubInstallAPI;
   onMeetingShortcut: (callback: () => void) => () => void;
 }
 

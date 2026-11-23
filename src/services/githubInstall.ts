@@ -1,80 +1,84 @@
-// GitHub App install round trip (web):
-//   project form "GitHub 앱 설치" -> rememberInstallTeam(teamId) -> same tab goes to GitHub
-//   -> GitHub -> {this web app}/github/install/callback?installation_id=..&setup_action=install&state=..
-//   -> takeInstallCallback() -> POST /api/github/installations/complete -> back to the project form
-// The same tab is used on purpose: the web login token and the team live in this tab's sessionStorage.
+// GitHub App install round trip:
+// - Web: the same tab returns to /github/install/callback and calls complete with its web JWT.
+// - Desktop: the system browser callback forwards the values to flowmate://github/install/callback;
+//   Electron then calls complete with the JWT held by the main process.
 
 import { api } from './api';
 
 export const INSTALL_CALLBACK_PATH = '/github/install/callback';
+export const INSTALL_CALLBACK_DEEP_LINK = 'flowmate://github/install/callback';
+
 const TEAM_KEY = 'flowmate_github_install_team';
+const RESUME_TEAM_KEY = 'flowmate_github_install_resume_team';
 
-export const rememberInstallTeam = (teamId: string) => {
-  try {
-    sessionStorage.setItem(TEAM_KEY, teamId);
-  } catch {
-    // storage disabled: the form just opens with the default team
-  }
+const session = {
+  get(key: string): string | null {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string | null) {
+    try {
+      if (value === null) sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, value);
+    } catch {
+      // Storage disabled: completion still works, but the team cannot be restored automatically.
+    }
+  },
 };
 
-/** The team the install was started for (read once). */
+export const rememberInstallTeam = (teamId: string) => session.set(TEAM_KEY, teamId);
+export const getInstallTeam = (): string | undefined => session.get(TEAM_KEY) || undefined;
+
 export const takeInstallTeam = (): string | undefined => {
-  try {
-    const v = sessionStorage.getItem(TEAM_KEY);
-    sessionStorage.removeItem(TEAM_KEY);
-    return v || undefined;
-  } catch {
-    return undefined;
-  }
+  const teamId = getInstallTeam();
+  session.set(TEAM_KEY, null);
+  return teamId;
 };
 
-export const isInstallCallbackUrl = () => window.location.pathname === INSTALL_CALLBACK_PATH;
+/** Keeps the selected team across the successful web callback reload. */
+export const rememberInstallResumeTeam = (teamId: string | undefined) => {
+  if (teamId) session.set(RESUME_TEAM_KEY, teamId);
+};
 
-export type InstallCallback =
-  | { kind: 'none' }
-  | { kind: 'invalid' }
-  | { kind: 'install'; state: string; installationId: string };
+export const takeInstallResumeTeam = (): string | undefined => {
+  const teamId = session.get(RESUME_TEAM_KEY) || undefined;
+  session.set(RESUME_TEAM_KEY, null);
+  return teamId;
+};
+
+export const isInstallCallbackUrl = () =>
+  window.location.pathname.replace(/\/+$/, '') === INSTALL_CALLBACK_PATH;
+
+export type InstallCallback = { kind: 'invalid' } | { kind: 'install'; state: string; installationId: string };
 
 /**
- * If this page load is GitHub's redirect after installing the app, reads it once and cleans the
- * address bar (no state left in history or bookmarks). The server checks the state.
+ * Parses GitHub's callback. State is opaque to the frontend and is validated by the backend.
  */
-export function takeInstallCallback(): InstallCallback {
-  if (!isInstallCallbackUrl()) return { kind: 'none' };
-  const params = new URLSearchParams(window.location.search);
-  window.history.replaceState(null, '', '/');
+export function parseInstallCallback(search: string): InstallCallback {
+  const params = new URLSearchParams(search);
   const state = params.get('state') || '';
-  // GitHub sends installation_id; accept installationId too
   const installationId = params.get('installation_id') || params.get('installationId') || '';
-  if (!/^\d{1,20}$/.test(installationId) || !/^[A-Za-z0-9._~+/=-]{1,2048}$/.test(state)) return { kind: 'invalid' };
+  if (!/^\d{1,20}$/.test(installationId) || state.length === 0 || state.length > 4096) return { kind: 'invalid' };
   return { kind: 'install', state, installationId };
 }
 
-// React StrictMode runs effects twice in dev: complete must be called only once per redirect
-let finishing: Promise<void> | null = null;
+export const installCallbackDeepLink = (callback: Extract<InstallCallback, { kind: 'install' }>) => {
+  const query = new URLSearchParams({ installation_id: callback.installationId, state: callback.state });
+  return `${INSTALL_CALLBACK_DEEP_LINK}?${query.toString()}`;
+};
 
-/**
- * Runs once after login on the install redirect: POST complete, then reopen the project form for the
- * team the install was started from (the form loads that team's installations again).
- */
-export function finishGitHubInstall(reopen: (teamId: string | undefined) => void): Promise<void> {
-  if (finishing) return finishing;
-  const cb = takeInstallCallback();
-  if (cb.kind === 'none') return Promise.resolve();
-  finishing = (async () => {
-    const teamId = takeInstallTeam();
-    if (cb.kind === 'invalid') {
-      window.alert('GitHub에서 돌아온 주소가 올바르지 않아 앱 설치를 저장하지 못했습니다. 다시 설치해주세요.');
-    } else {
-      try {
-        await api.completeGitHubInstallation(cb.state, cb.installationId);
-      } catch (err) {
-        console.error('GitHub install complete failed:', err);
-        const msg = err instanceof Error && err.message ? `\n(${err.message})` : '';
-        window.alert(`GitHub 앱 설치 정보를 저장하지 못했습니다.${msg}`);
-      }
-    }
-    reopen(teamId);
-  })();
-  return finishing;
+// GitHub or the OS can deliver the same callback more than once. Deduplicate it in this renderer.
+const completing = new Map<string, Promise<void>>();
+
+export function completeGitHubInstall(callback: Extract<InstallCallback, { kind: 'install' }>): Promise<void> {
+  const key = `${callback.installationId}:${callback.state}`;
+  const existing = completing.get(key);
+  if (existing) return existing;
+  const request = api.completeGitHubInstallation(callback.state, callback.installationId);
+  completing.set(key, request);
+  request.catch(() => completing.delete(key));
+  return request;
 }

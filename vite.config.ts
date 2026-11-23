@@ -24,6 +24,7 @@ function electronConfig(apiBaseUrl: string): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   return {
+    base: './',
     plugins: [react(), electronConfig(env.VITE_API_BASE_URL ?? '')],
     resolve: {
       alias: {

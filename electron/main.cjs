@@ -7,6 +7,7 @@ const { createAuth } = require('./auth.cjs');
 
 let mainWindow = null;
 let tray = null;
+let pendingGithubInstallCallback = null;
 // Packaged = release. (NODE_ENV is usually unset in a packaged app, so it must not decide this:
 // the release build would otherwise load localhost:5173 and use the dev trust rules.)
 const isDev = !app.isPackaged;
@@ -201,21 +202,40 @@ const PROTOCOL = 'flowmate';
 
 if (!gotSingleInstanceLock) {
   // second process: quitting, register nothing
-} else if (process.defaultApp && process.argv.length >= 2) {
+} else if (isDev && process.argv.length >= 2) {
   // Dev run (electron electron/main.cjs): the OS must launch electron with our script path
-  app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+  const registered = app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+  if (!registered) console.error(`[protocol] could not register ${PROTOCOL}:// for development`);
 } else {
-  app.setAsDefaultProtocolClient(PROTOCOL);
+  const registered = app.setAsDefaultProtocolClient(PROTOCOL);
+  if (!registered) console.error(`[protocol] could not register ${PROTOCOL}://`);
 }
 
-// Only the OAuth callback is accepted; any other flowmate:// link is dropped.
-// (Whether a login was actually started is checked in auth.handleCallback.)
+// Only known callback paths are accepted; every other flowmate:// link is dropped.
 const OAUTH_CALLBACK_PREFIX = `${PROTOCOL}://oauth/callback`;
 const isOAuthCallback = (a) =>
   typeof a === 'string' &&
   a.length <= 8192 &&
   (a === OAUTH_CALLBACK_PREFIX || a.startsWith(`${OAUTH_CALLBACK_PREFIX}?`) || a.startsWith(`${OAUTH_CALLBACK_PREFIX}/?`));
-const findDeepLink = (argv) => argv.find(isOAuthCallback);
+const GITHUB_INSTALL_CALLBACK_PREFIX = `${PROTOCOL}://github/install/callback`;
+const isGithubInstallCallback = (a) =>
+  typeof a === 'string' &&
+  a.length <= 8192 &&
+  (a === GITHUB_INSTALL_CALLBACK_PREFIX || a.startsWith(`${GITHUB_INSTALL_CALLBACK_PREFIX}?`));
+const isSupportedDeepLink = (a) => isOAuthCallback(a) || isGithubInstallCallback(a);
+const findDeepLink = (argv) => argv.find(isSupportedDeepLink);
+
+function parseGithubInstallCallback(url) {
+  try {
+    const parsed = new URL(url);
+    const installationId = parsed.searchParams.get('installation_id') || '';
+    const state = parsed.searchParams.get('state') || '';
+    if (!/^\d{1,20}$/.test(installationId) || !state || state.length > 4096) return null;
+    return { installation_id: installationId, state };
+  } catch {
+    return null;
+  }
+}
 
 function focusMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -225,8 +245,17 @@ function focusMainWindow() {
 }
 
 function handleDeepLink(url) {
-  if (!isOAuthCallback(url)) return;
+  if (!isSupportedDeepLink(url)) return;
   focusMainWindow();
+  if (isGithubInstallCallback(url)) {
+    const callback = parseGithubInstallCallback(url);
+    if (!callback) return;
+    pendingGithubInstallCallback = callback;
+    if (mainWindow && !mainWindow.webContents.isLoading()) {
+      mainWindow.webContents.send('github-install:callback-available');
+    }
+    return;
+  }
   // The renderer only ever learns ok/error, never the token
   auth
     .handleCallback(url)
@@ -294,6 +323,9 @@ function createWindow() {
       mainWindow.webContents.send('auth:result', pendingAuthResult);
       pendingAuthResult = null;
     }
+    if (pendingGithubInstallCallback) {
+      mainWindow.webContents.send('github-install:callback-available');
+    }
   });
 
   mainWindow.on('closed', () => {
@@ -355,6 +387,9 @@ app.whenReady().then(async () => {
   await auth.ready.catch((err) => console.error('[auth] init failed:', err));
   restrictPermissions();
   createWindow();
+  // Unlike OAuth, a GitHub installation may legitimately return after the app was closed.
+  const startupInstallLink = process.argv.find(isGithubInstallCallback);
+  if (startupInstallLink) handleDeepLink(startupInstallLink);
   createTray();
 
   // Register Global Shortcuts
@@ -426,6 +461,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('auth:clear', async (event) => {
     if (!isTrustedSender(event)) return;
     await auth.clear();
+  });
+  ipcMain.handle('github-install:take-callback', (event) => {
+    if (!isTrustedSender(event)) return null;
+    const callback = pendingGithubInstallCallback;
+    pendingGithubInstallCallback = null;
+    return callback;
   });
 
   ipcMain.on('window-minimize', (event) => {

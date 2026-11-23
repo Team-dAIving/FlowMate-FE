@@ -156,7 +156,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   const loadSeq = useRef(0);
   const loadInstallations = useCallback(async () => {
     const mine = ++loadSeq.current; // a slower answer for a previous team is dropped
-    if (!githubTeamId) return;
+    if (!githubTeamId) return undefined;
     setGithub((prev) => (prev.status === 'ready' ? prev : { status: 'loading' }));
     try {
       const list = await api.getGitHubInstallations(githubTeamId);
@@ -164,10 +164,12 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
       setGithub({ status: 'ready', installations: list });
       if (list.length > 0) setWaitingForInstall(false);
       setInstallationId((cur) => (list.some((i) => i.installationId === cur) ? cur : list[0]?.installationId || ''));
+      return list;
     } catch (err) {
       if (mine !== loadSeq.current) return;
       console.error('Failed to load GitHub installations:', err);
       setGithub({ status: 'error', message: errorText(err, 'GitHub 연결 정보를 불러오지 못했습니다.') });
+      return undefined;
     }
   }, [githubTeamId]);
 
@@ -197,13 +199,14 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
     try {
       const url = await api.startGitHubInstallation(githubTeamId);
       if (!isGitHubInstallUrl(url)) throw new Error('서버가 올바르지 않은 GitHub 설치 주소를 보냈습니다.');
+      // Needed after both a same-tab web redirect and a desktop deep-link return.
+      rememberInstallTeam(githubTeamId);
       if (window.electronAPI?.isElectron) {
         // Desktop: window.open goes to the system browser (main process)
         window.open(url, '_blank', 'noopener,noreferrer');
         setWaitingForInstall(true);
       } else {
         // Web: same tab, so GitHub's redirect to /github/install/callback finds this tab's login and team
-        rememberInstallTeam(githubTeamId);
         window.location.assign(url);
       }
     } catch (err) {
@@ -211,6 +214,16 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
       setConnectError(errorText(err, 'GitHub 연결을 시작하지 못했습니다.'));
     } finally {
       setIsConnecting(false);
+    }
+  };
+
+  const refreshAfterInstall = async () => {
+    setConnectError('');
+    const list = await loadInstallations();
+    if (list && list.length === 0) {
+      setConnectError(
+        'GitHub 설치 완료 콜백이 아직 FlowMate에 전달되지 않았습니다. 브라우저의 콜백 화면에서 “FlowMate 열기”를 허용해주세요. 개발 앱이라면 Electron을 완전히 종료한 뒤 다시 실행해야 합니다.'
+      );
     }
   };
 
@@ -569,7 +582,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
                   깃허브 연결하기
                 </Button>
                 {waitingForInstall && (
-                  <Button type="button" size="sm" variant="outline" onClick={() => void loadInstallations()} className="gap-1.5">
+                  <Button type="button" size="sm" variant="outline" onClick={() => void refreshAfterInstall()} className="gap-1.5">
                     <RefreshCw className="h-3.5 w-3.5" />
                     설치 완료 후 다시 불러오기
                   </Button>

@@ -2,6 +2,8 @@ import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppLayout } from './components/layout/AppLayout';
 import { AuthGate } from './components/auth/AuthGate';
+import { GitHubInstallCallbackPage } from './components/github/GitHubInstallCallbackPage';
+import { isInstallCallbackUrl } from './services/githubInstall';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -15,9 +17,13 @@ const queryClient = new QueryClient({
 export const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthGate>
-        <AppLayout />
-      </AuthGate>
+      {isInstallCallbackUrl() ? (
+        <GitHubInstallCallbackPage />
+      ) : (
+        <AuthGate>
+          <AppLayout />
+        </AuthGate>
+      )}
     </QueryClientProvider>
   );
 };

@@ -28,6 +28,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('auth:result', handler);
     },
   },
+  githubInstall: {
+    takeCallback: () => ipcRenderer.invoke('github-install:take-callback'),
+    onCallbackAvailable: (callback) => {
+      const handler = () => callback();
+      ipcRenderer.on('github-install:callback-available', handler);
+      return () => ipcRenderer.removeListener('github-install:callback-available', handler);
+    },
+  },
   onMeetingShortcut: (callback) => {
     const handler = () => callback();
     ipcRenderer.on('trigger-meeting-recording', handler);

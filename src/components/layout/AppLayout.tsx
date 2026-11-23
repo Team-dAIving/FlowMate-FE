@@ -25,7 +25,12 @@ import { useTaskStore } from '../../store/useTaskStore';
 import { useMeetingStore } from '../../store/useMeetingStore';
 import { useTeamStore } from '../../store/useTeamStore';
 import { useUIStore } from '../../store/useUIStore';
-import { finishGitHubInstall } from '../../services/githubInstall';
+import {
+  completeGitHubInstall,
+  parseInstallCallback,
+  takeInstallResumeTeam,
+  takeInstallTeam,
+} from '../../services/githubInstall';
 
 export const AppLayout: React.FC = () => {
   const { currentView, initialize } = useWorkspaceStore();
@@ -55,9 +60,38 @@ export const AppLayout: React.FC = () => {
     fetchNotifications();
   }, [initialize, fetchTasks, fetchMeetings, fetchTeams, fetchNotifications]);
 
-  // Back from installing the GitHub App: save it, then reopen the project form for that team
+  // A successful web callback reloads the app and leaves the team to reopen here.
   useEffect(() => {
-    void finishGitHubInstall((teamId) => setCreateProjectModalOpen(true, teamId));
+    const teamId = takeInstallResumeTeam();
+    if (teamId) setCreateProjectModalOpen(true, teamId);
+  }, [setCreateProjectModalOpen]);
+
+  // Desktop callbacks arrive from the system browser through the flowmate:// deep link.
+  useEffect(() => {
+    const desktopInstall = window.electronAPI?.githubInstall;
+    if (!desktopInstall) return;
+
+    const finish = async () => {
+      const raw = await desktopInstall.takeCallback();
+      if (!raw) return;
+      const callback = parseInstallCallback(
+        `?${new URLSearchParams({ installation_id: raw.installation_id, state: raw.state })}`
+      );
+      if (callback.kind === 'invalid') return;
+      try {
+        await completeGitHubInstall(callback);
+        // Zustand's setter is safe across React StrictMode's development-only remount.
+        setCreateProjectModalOpen(true, takeInstallTeam());
+      } catch (err) {
+        console.error('GitHub install complete failed:', err);
+        const message = err instanceof Error && err.message ? `\n(${err.message})` : '';
+        window.alert(`GitHub 앱 설치 정보를 저장하지 못했습니다.${message}`);
+      }
+    };
+
+    const unsubscribe = desktopInstall.onCallbackAvailable(() => void finish());
+    void finish();
+    return unsubscribe;
   }, [setCreateProjectModalOpen]);
 
   const renderMainView = () => {
