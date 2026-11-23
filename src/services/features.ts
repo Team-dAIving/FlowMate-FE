@@ -14,7 +14,7 @@ const SERVER_FEATURES = {
   aiIssueRegister: true, // POST /api/projects/{id}/tasks (bulk-register drafts + GitHub issues)
   personalProject: false, // a project without a team: POST /api/projects still requires teamId
   tasks: true, // task list via GET /api/teams/{id}, GET /api/tasks/{id}
-  taskCreate: true, // POST /api/projects/{id}/tasks/manual (+ optional GitHub issue in a chosen repo)
+  taskCreate: true, // POST /api/projects/{id}/tasks with one item (+ optional GitHub issue in a chosen repo)
   taskWrite: false, // change status/priority/assignee/dates of an existing task: no endpoint yet
   taskComments: true, // POST /api/tasks/{id}/comments
   taskDelete: true, // DELETE /api/tasks/{id}

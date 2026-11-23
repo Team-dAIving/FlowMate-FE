@@ -6,6 +6,7 @@ import { Button } from '../ui/Button';
 import { Input, Textarea } from '../ui/Input';
 import { Avatar } from '../ui/Avatar';
 import { MemberRoleEditor } from './MemberRoleEditor';
+import { TeamCreateModal } from '../teams/TeamCreateModal';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTeamStore } from '../../store/useTeamStore';
 import {
@@ -60,6 +61,8 @@ const todayISO = () => format(new Date(), 'yyyy-MM-dd');
 
 // Team select value for a project without a team
 const PERSONAL = '__personal__';
+// Team select value that opens the create-team dialog instead of selecting something
+const NEW_TEAM = '__new_team__';
 
 // One "connect this repo as <role>" row (repoId '' = not picked yet)
 interface RepoRow {
@@ -100,6 +103,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   const [connectError, setConnectError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [teamModalOpen, setTeamModalOpen] = useState(false);
 
   // Bumped on every open: a GitHub lookup that finishes after the form was reset is discarded
   const formSeq = useRef(0);
@@ -125,6 +129,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
     setWaitingForInstall(false);
     setConnectError('');
     setSubmitError('');
+    setTeamModalOpen(false);
   }, [isOpen, defaultTeamId]);
 
   // Team or personal project. Preselect the first team (or personal) when nothing valid is chosen.
@@ -295,9 +300,11 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   }
 
   return (
+    <>
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      // Escape in the team dialog must not also close this form
+      onClose={teamModalOpen ? () => {} : onClose}
       maxWidth="2xl"
       title="새 프로젝트 생성 (Create Project)"
       description="팀 프로젝트의 주제, 목표, 기간, 설계서와 팀원별 역할·기술 스택, GitHub 레포를 정합니다."
@@ -384,6 +391,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
             id="project-team"
             value={selectedTeamId}
             onChange={(e) => {
+              if (e.target.value === NEW_TEAM) return setTeamModalOpen(true);
               setSelectedTeamId(e.target.value);
               setExcluded(new Set());
             }}
@@ -395,6 +403,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
                 {t.name}
               </option>
             ))}
+            <option value={NEW_TEAM}>+ 새 팀 만들기</option>
             <option value={PERSONAL} disabled={!personalAllowed}>
               {personalAllowed ? '팀 없음 (개인 프로젝트)' : '팀 없음 (개인 프로젝트, 서버 준비 중)'}
             </option>
@@ -403,7 +412,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
             {isPersonal
               ? '혼자 진행하는 프로젝트입니다. 멤버는 나 한 명이고, 리더도 내가 됩니다.'
               : teams.length === 0
-              ? '먼저 팀을 만들어주세요. 개인 프로젝트는 서버가 지원하면 바로 쓸 수 있습니다.'
+              ? '소속 팀이 없습니다. 목록에서 "+ 새 팀 만들기"를 골라 이 프로젝트를 함께 할 새 팀을 만들 수 있습니다.'
               : '프로젝트 멤버는 이 팀의 팀원 중에서 정합니다. 새 사람은 팀에 먼저 초대해주세요.'}
           </p>
         </div>
@@ -668,5 +677,15 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
         </div>
       </form>
     </Modal>
+    {/* Sibling of the form, not inside it: its own <form> must not nest. The new team gets selected. */}
+    <TeamCreateModal
+      isOpen={isOpen && teamModalOpen}
+      onClose={() => setTeamModalOpen(false)}
+      onCreated={(team) => {
+        setSelectedTeamId(team.id);
+        setExcluded(new Set());
+      }}
+    />
+    </>
   );
 };

@@ -7,14 +7,15 @@ import { useTeamStore } from '../../store/useTeamStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { Avatar } from '../ui/Avatar';
 import { api } from '../../services/api';
-import { PublicUserProfile, TEAM_LIMITS, USER_CODE_PATTERN } from '../../types';
+import { PublicUserProfile, TEAM_LIMITS, Team, USER_CODE_PATTERN } from '../../types';
 
 export interface TeamCreateModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onCreated?: (team: Team) => void; // e.g. the project form selects the new team
 }
 
-export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClose }) => {
+export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClose, onCreated }) => {
   const { createTeam } = useTeamStore();
   const { currentUser } = useWorkspaceStore();
 
@@ -122,7 +123,8 @@ export const TeamCreateModal: React.FC<TeamCreateModalProps> = ({ isOpen, onClos
     setSubmitError('');
     try {
       // 프로젝트는 팀 생성 후 연결
-      await createTeam({ name: name.trim(), description: description.trim(), color, memberIds });
+      const created = await createTeam({ name: name.trim(), description: description.trim(), color, memberIds });
+      onCreated?.(created);
 
       resetForm();
       onClose();

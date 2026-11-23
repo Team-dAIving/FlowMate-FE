@@ -7,7 +7,7 @@ import { IssueDraft, Project, ProjectRepository, TaskPriority } from '../../type
 import { api } from '../../services/api';
 import { isFeatureAvailable } from '../../services/features';
 import { useTaskStore } from '../../store/useTaskStore';
-import { repoForPosition } from '../../utils/github';
+import { repoForPosition, repoRoleLabel } from '../../utils/github';
 
 export interface AiIssueDraftsModalProps {
   isOpen: boolean;
@@ -54,7 +54,10 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
       { ...project, repositories: repos || [] },
       project.members.find((m) => m.user.id === assigneeId)?.position
     );
-  const canOpenIssue = (assigneeId?: string) => Boolean(issueRepoFor(assigneeId));
+  // Repo that gets a draft's issue: the one picked in the dropdown, else the assignee's part repo
+  const repoKey = (r: ProjectRepository) => r.githubRepositoryId ?? r.id;
+  const chosenRepoFor = (d: IssueDraft) =>
+    (d.githubRepositoryId ? (repos || []).find((r) => repoKey(r) === d.githubRepositoryId) : undefined) ?? issueRepoFor(d.assigneeId);
 
   const generate = useCallback(async () => {
     const mine = ++seq.current;
@@ -116,12 +119,14 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
     if (noDates) return setSaveError(`"${noDates.title}"의 시작일과 마감일을 입력해주세요.`);
     const badDates = drafts.find((d) => d.startDate && d.dueDate && d.dueDate < d.startDate);
     if (badDates) return setSaveError(`"${badDates.title}"의 마감일이 시작일보다 빠릅니다.`);
+    const noRepo = drafts.find((d) => d.createGithubIssue && !chosenRepoFor(d));
+    if (noRepo) return setSaveError(`"${noRepo.title}"의 GitHub 이슈를 만들 저장소를 골라주세요.`);
     setPhase('saving');
     setSaveError('');
     try {
       // The repo shown next to each checkbox is the one that gets the issue
       const withRepos = drafts.map((d) => {
-        const repo = d.createGithubIssue ? issueRepoFor(d.assigneeId) : undefined;
+        const repo = d.createGithubIssue ? chosenRepoFor(d) : undefined;
         return { ...d, createGithubIssue: Boolean(repo), githubRepositoryId: repo?.githubRepositoryId };
       });
       const r = await api.registerIssueDrafts(project, withRepos);
@@ -192,7 +197,7 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
 
           <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
             {drafts.map((d) => {
-              const repo = issueRepoFor(d.assigneeId);
+              const repo = chosenRepoFor(d);
               return (
                 <div key={d.key} className="p-3 rounded-lg border border-border bg-surface-hover/30 space-y-2">
                   <div className="flex items-center gap-2">
@@ -228,11 +233,7 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
                       value={d.assigneeId || ''}
                       onChange={(e) => {
                         const assigneeId = e.target.value || undefined;
-                        update(d.key, {
-                          assigneeId,
-                          // no repo for the new assignee's part: can't open an issue
-                          createGithubIssue: d.createGithubIssue && canOpenIssue(assigneeId),
-                        });
+                        update(d.key, { assigneeId });
                       }}
                       aria-label="담당자"
                       className={inputClass}
@@ -293,19 +294,33 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
                       />
                       시간
                     </label>
-                    <label
-                      className="ml-auto flex items-center gap-1 text-[11px] text-text-secondary"
-                      title={repo ? `${repo.fullName}에 이슈를 만듭니다` : '이 담당자의 파트에 연결된 저장소가 없습니다'}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={d.createGithubIssue}
-                        disabled={!canOpenIssue(d.assigneeId)}
-                        onChange={(e) => update(d.key, { createGithubIssue: e.target.checked })}
-                      />
-                      <Github className="h-3 w-3" />
-                      GitHub 이슈
-                    </label>
+                    <div className="ml-auto flex items-center gap-2">
+                      <label className="flex items-center gap-1 text-[11px] text-text-secondary">
+                        <input
+                          type="checkbox"
+                          checked={d.createGithubIssue}
+                          disabled={!hasRepos}
+                          onChange={(e) => update(d.key, { createGithubIssue: e.target.checked })}
+                        />
+                        <Github className="h-3 w-3" />
+                        GitHub 이슈
+                      </label>
+                      {d.createGithubIssue && (
+                        <select
+                          value={repo ? repoKey(repo) : ''}
+                          onChange={(e) => update(d.key, { githubRepositoryId: e.target.value || undefined })}
+                          aria-label="이슈를 만들 저장소"
+                          className={`${inputClass} max-w-[14rem] font-mono`}
+                        >
+                          {!repo && <option value="">저장소 선택</option>}
+                          {(repos || []).map((r) => (
+                            <option key={repoKey(r)} value={repoKey(r)}>
+                              [{repoRoleLabel(r.role)}] {r.fullName}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   </div>
                   {d.labels.length > 0 && (
                     <div className="flex flex-wrap gap-1">

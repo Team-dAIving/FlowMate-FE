@@ -24,7 +24,7 @@ import { makeRepository, safeHref, toRepoRole } from '../utils/github';
 //   GET    /api/projects/{id}           -> detail (dates, leader, counts)
 //   POST   /api/projects/issue-drafts   -> AI task drafts from the project info (nothing is saved)
 //   GET    /api/projects/{id}/tasks     -> the project's tasks
-//   POST   /api/projects/{id}/tasks/manual -> one task, optional GitHub issue in a chosen repo
+//   POST   /api/projects/{id}/tasks      -> also used for one task (single item), optional GitHub issue in a chosen repo
 //   GET    /api/projects/{id}/repositories -> repos connected to the project
 //   GET    /api/tasks                   -> all my tasks, grouped by project
 //   GET    /api/projects/{id}/members   -> members with e-mail, parts, stack
@@ -361,10 +361,14 @@ interface ProjectDashboardDto {
 
 interface ProjectRepositoryDto {
   githubRepositoryId: number;
-  owner: string | null;
-  name: string | null;
+  owner?: string | null;
+  name?: string | null;
+  // The project detail API names these ownerLogin/repositoryName/repositoryRole (same table); accept both
+  ownerLogin?: string | null;
+  repositoryName?: string | null;
   htmlUrl: string | null;
-  role: string | null; // COMMON | BACKEND | FRONTEND | AI
+  role?: string | null; // COMMON | BACKEND | FRONTEND | AI
+  repositoryRole?: string | null;
 }
 interface CreateTaskResponseDto {
   taskId: number;
@@ -560,48 +564,63 @@ export const projectTaskApi = {
 
   /** GET /api/projects/{id}/repositories: the repos connected to the project, with their role. */
   getProjectRepositories: async (projectId: string): Promise<ProjectRepository[]> => {
-    const res = await http<{ repositories?: ProjectRepositoryDto[] }>(
+    const res = await http<{ repositories?: ProjectRepositoryDto[] } | ProjectRepositoryDto[]>(
       `/api/projects/${encodeURIComponent(projectId)}/repositories`
     );
-    return (res?.repositories || [])
-      .filter((r) => r.owner && r.name)
-      .map((r) => ({
-        ...makeRepository(r.owner!, r.name!, toRepoRole(r.role)),
-        htmlUrl: safeHref(r.htmlUrl || undefined) || makeRepository(r.owner!, r.name!).htmlUrl,
-        githubRepositoryId: String(r.githubRepositoryId),
-      }));
+    const list = Array.isArray(res) ? res : res?.repositories || [];
+    const repos = list.flatMap((r) => {
+      // owner/name may be missing: fall back to the GitHub URL (https://github.com/owner/name)
+      const fromUrl = (r.htmlUrl || '').match(/github\.com\/([^/]+)\/([^/?#]+)/i);
+      const owner = r.owner || r.ownerLogin || fromUrl?.[1];
+      const name = r.name || r.repositoryName || fromUrl?.[2];
+      if (!owner || !name) return [];
+      return [
+        {
+          ...makeRepository(owner, name, toRepoRole(r.role || r.repositoryRole)),
+          htmlUrl: safeHref(r.htmlUrl || undefined) || makeRepository(owner, name).htmlUrl,
+          githubRepositoryId: String(r.githubRepositoryId),
+        },
+      ];
+    });
+    if (list.length > 0 && repos.length === 0) console.warn('[api] repositories response has no usable owner/name:', list);
+    return repos;
   },
 
   /**
-   * POST /api/projects/{id}/tasks/manual: one task, optionally with a GitHub issue in the given repo
-   * (without githubRepositoryId the server picks the assignee's part repo, else the common one).
-   * The server sets the start date to today (Seoul). The task is kept even if the issue fails.
+   * POST /api/projects/{id}/tasks with a single item: one task, optionally with a GitHub issue in the given repo.
+   * The start date is today (Seoul), but never after the due date. The task is kept even if the issue fails.
    */
   createManualTask: async (projectId: string, input: ManualTaskInput): Promise<ManualTaskResult> => {
-    const res = await http<CreateTaskResponseDto>(`/api/projects/${encodeURIComponent(projectId)}/tasks/manual`, {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()); // YYYY-MM-DD
+    const res = await http<{ tasks?: CreateTaskResponseDto[] }>(`/api/projects/${encodeURIComponent(projectId)}/tasks`, {
       method: 'POST',
       timeoutMs: 60000, // includes the GitHub call
       json: {
-        title: input.title.trim(),
-        description: input.description.trim(),
-        priority: input.priority,
-        ...(input.assigneeId ? { assigneeId: toId(input.assigneeId) } : {}),
-        dueDate: input.dueDate,
-        ...(input.estimatedHours != null && input.estimatedHours > 0 ? { estimatedHours: input.estimatedHours } : {}),
-        labels: [],
-        createGithubIssue: input.createGithubIssue,
-        ...(input.createGithubIssue && input.githubRepositoryId ? { githubRepositoryId: toId(input.githubRepositoryId) } : {}),
+        issues: [
+          {
+            title: input.title.trim(),
+            description: input.description.trim(),
+            priority: input.priority,
+            ...(input.assigneeId ? { assigneeId: toId(input.assigneeId) } : {}),
+            startDate: input.dueDate < today ? input.dueDate : today,
+            dueDate: input.dueDate,
+            ...(input.estimatedHours != null && input.estimatedHours > 0 ? { estimatedHours: input.estimatedHours } : {}),
+            labels: [],
+            createGithubIssue: input.createGithubIssue,
+            ...(input.createGithubIssue && input.githubRepositoryId ? { githubRepositoryId: toId(input.githubRepositoryId) } : {}),
+          },
+        ],
       },
     });
+    const created = res?.tasks?.[0];
+    if (!created) throw new Error('서버가 등록된 업무 정보를 돌려주지 않았습니다.');
     return {
-      taskId: String(res.taskId),
-      issueUrl: safeHref(res.githubIssueUrl || undefined),
-      issueFailed: res.githubIssueRequested && res.githubSyncStatus === 'FAILED',
-      issueError: res.githubError || undefined,
+      taskId: String(created.taskId),
+      issueUrl: safeHref(created.githubIssueUrl || undefined),
+      issueFailed: created.githubIssueRequested && created.githubSyncStatus === 'FAILED',
+      issueError: created.githubError || undefined,
     };
-  },
-
-  /** GET /api/tasks: every task of every project I'm in, in one request. */
+  },  /** GET /api/tasks: every task of every project I'm in, in one request. */
   getMyTasks: async (): Promise<Task[]> => {
     const res = await http<{ projects?: { projectId: number; projectName: string | null; tasks?: ProjectTaskDto[] }[] }>(
       '/api/tasks'
