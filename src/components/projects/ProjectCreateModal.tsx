@@ -21,7 +21,6 @@ import {
 } from '../../types';
 import { api } from '../../services/api';
 import { isFeatureAvailable } from '../../services/features';
-import { NotConnected } from '../ui/NotConnected';
 import { normalizeSkills } from '../../utils/positions';
 import { REPOS_MAX, REPO_ROLES, isGitHubInstallUrl, repoFromInstallation } from '../../utils/github';
 import { rememberInstallTeam } from '../../services/githubInstall';
@@ -320,14 +319,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
   const selectClass =
     'w-full h-8 rounded-md border border-border bg-surface px-2.5 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary';
 
-  // Deployed service without this backend API: say so instead of a form that can only fail
-  if (!isFeatureAvailable('projectCreate')) {
-    return (
-      <Modal isOpen={isOpen} onClose={onClose} maxWidth="md" title="새 프로젝트 생성 (Create Project)">
-        <NotConnected feature="프로젝트 생성" />
-      </Modal>
-    );
-  }
+  if (!isFeatureAvailable('projectCreate')) return null;
 
   return (
     <>
@@ -435,7 +427,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
             ))}
             <option value={NEW_TEAM}>+ 새 팀 만들기</option>
             <option value={PERSONAL} disabled={!personalAllowed}>
-              {personalAllowed ? '팀 없음 (개인 프로젝트)' : '팀 없음 (개인 프로젝트, 서버 준비 중)'}
+              팀 없음 (개인 프로젝트)
             </option>
           </select>
           <p className="mt-1 text-[11px] text-text-muted">
@@ -549,9 +541,7 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({ isOpen, 
             )}
           </div>
 
-          {!isFeatureAvailable('githubApp') ? (
-            <NotConnected feature="GitHub 연결" />
-          ) : !githubTeamId ? (
+          {!isFeatureAvailable('githubApp') ? null : !githubTeamId ? (
             <p className="text-[11px] text-text-muted">소속 팀을 고르면 그 팀에 연결된 GitHub 계정·저장소를 불러옵니다.</p>
           ) : github.status === 'loading' ? (
             <p className="text-[11px] text-text-muted flex items-center gap-1.5">

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { isFeatureAvailable } from '../../services/features';
 import { USE_REAL_API } from '../../services/http';
-import { NotConnected } from '../ui/NotConnected';
 import {
   ArrowLeft,
   Sparkles,
@@ -315,9 +314,6 @@ export const MeetingDetail: React.FC = () => {
         </div>
       )}
 
-      {!isFeatureAvailable('meetingWrite') && (
-        <NotConnected feature="회의 업무 승인·전문 보기" />
-      )}
       {meeting.approvedActionItemCount !== undefined && actionItems.length === 0 && (
         <p className="text-[11px] text-text-muted">이 회의에서 승인된 업무: {meeting.approvedActionItemCount}개</p>
       )}

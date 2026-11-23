@@ -11,7 +11,6 @@ import { daysFromTodayISO, todayISO } from '../../utils/dates';
 import { isFeatureAvailable } from '../../services/features';
 import { api } from '../../services/api';
 import { repoForPosition, repoRoleLabel } from '../../utils/github';
-import { NotConnected } from '../ui/NotConnected';
 
 export interface TaskCreateModalProps {
   isOpen: boolean;
@@ -145,14 +144,7 @@ export const TaskCreateModal: React.FC<TaskCreateModalProps> = ({ isOpen, onClos
     }
   };
 
-  // Deployed service without this backend API yet: say so instead of a form that can only fail
-  if (!isFeatureAvailable('taskCreate')) {
-    return (
-      <Modal isOpen={isOpen} onClose={onClose} maxWidth="md" title="새 업무 등록 (Create Task)">
-        <NotConnected feature="업무 등록" />
-      </Modal>
-    );
-  }
+  if (!isFeatureAvailable('taskCreate')) return null;
 
   const selectClass =
     'w-full h-8 rounded-md border border-border bg-surface px-3 text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50';

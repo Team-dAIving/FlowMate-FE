@@ -156,9 +156,6 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
           {actionError}
         </p>
       )}
-      {!canEdit && (
-        <p className="mb-3 text-[11px] text-text-muted">업무 상태·우선순위·담당자 변경은 서버 연동 준비 중입니다. 댓글과 삭제는 사용할 수 있습니다.</p>
-      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Main Column (2 cols) */}
         <div className="md:col-span-2 space-y-5">
@@ -211,18 +208,18 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ taskId, onClos
                 <p className="text-[11px] text-text-secondary">
                   FlowMate 업무를 단방향으로 GitHub Issue에 등록합니다.
                 </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleCreateGitHubIssue}
-                  isLoading={isSyncingGitHub}
-                  disabled={!canCreateIssue}
-                  title={canCreateIssue ? undefined : 'GitHub Issue 생성은 서버 연동 준비 중입니다.'}
-                  className="text-xs h-7 gap-1"
-                >
-                  <GitBranch className="h-3 w-3" />
-                  <span>GitHub Issue 생성</span>
-                </Button>
+                {canCreateIssue && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCreateGitHubIssue}
+                    isLoading={isSyncingGitHub}
+                    className="text-xs h-7 gap-1"
+                  >
+                    <GitBranch className="h-3 w-3" />
+                    <span>GitHub Issue 생성</span>
+                  </Button>
+                )}
               </div>
             )}
             {issueError && (

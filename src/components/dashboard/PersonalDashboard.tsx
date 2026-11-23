@@ -29,8 +29,6 @@ import { formatDate } from '../../utils/formatters';
 import { isOverdue } from '../../utils/dates';
 import { projectProgress } from '../../utils/progress';
 import { differenceInCalendarDays, parseISO, startOfDay } from 'date-fns';
-import { isFeatureAvailable } from '../../services/features';
-import { NotConnected } from '../ui/NotConnected';
 
 export const PersonalDashboard: React.FC = () => {
   const { currentUser, projects, setCurrentView } = useWorkspaceStore();
@@ -76,7 +74,6 @@ export const PersonalDashboard: React.FC = () => {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
-      {!isFeatureAvailable('taskWrite') && <NotConnected feature="업무 상태·내용 수정과 회의 녹음" />}
       {/* Top Greeting & Quick Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>

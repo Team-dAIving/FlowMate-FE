@@ -9,8 +9,6 @@ import { Badge } from '../ui/Badge';
 import { Avatar } from '../ui/Avatar';
 import { formatDate, formatDuration } from '../../utils/formatters';
 import { MeetingStatusBadge } from './MeetingStatusBadge';
-import { isFeatureAvailable } from '../../services/features';
-import { NotConnected } from '../ui/NotConnected';
 
 export const MeetingList: React.FC = () => {
   const { meetings } = useMeetingStore();
@@ -19,7 +17,6 @@ export const MeetingList: React.FC = () => {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
-      {!isFeatureAvailable('meetingWrite') && <NotConnected feature="회의 녹음·AI 분석" />}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>

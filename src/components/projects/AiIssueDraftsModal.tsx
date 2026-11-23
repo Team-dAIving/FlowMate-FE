@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Github, Loader2, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
-import { NotConnected } from '../ui/NotConnected';
 import { IssueDraft, Project, ProjectRepository, TaskPriority } from '../../types';
 import { api } from '../../services/api';
 import { isFeatureAvailable } from '../../services/features';
@@ -174,8 +173,6 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
 
       {(phase === 'review' || phase === 'saving') && (
         <div className="space-y-3">
-          {!canRegister && <NotConnected feature="업무 일괄 등록·GitHub 이슈 생성" />}
-
           <div className="flex items-center justify-between text-[11px] text-text-muted">
             <span>
               업무 {drafts.length}개 · GitHub 이슈로 만들 업무 {issueCount}개
