@@ -176,6 +176,7 @@ export interface IssueDraft {
   estimatedHours?: number;
   labels: string[];
   createGithubIssue: boolean;
+  githubRepositoryId?: string; // which repo gets the issue (set when registering)
 }
 
 // Backend: TODO, IN_PROGRESS, DONE, CANCELLED. IN_REVIEW exists only in local mock data.

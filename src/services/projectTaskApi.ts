@@ -546,6 +546,7 @@ export const projectTaskApi = {
             ...(d.estimatedHours != null && d.estimatedHours > 0 ? { estimatedHours: d.estimatedHours } : {}),
             labels: [...new Set(d.labels.map((l) => l.trim().slice(0, 50)).filter(Boolean))].slice(0, 20),
             createGithubIssue: d.createGithubIssue,
+            ...(d.createGithubIssue && d.githubRepositoryId ? { githubRepositoryId: toId(d.githubRepositoryId) } : {}),
           })),
         },
       }

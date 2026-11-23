@@ -3,12 +3,11 @@ import { Github, Loader2, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { NotConnected } from '../ui/NotConnected';
-import { IssueDraft, Project, TaskPriority } from '../../types';
+import { IssueDraft, Project, ProjectRepository, TaskPriority } from '../../types';
 import { api } from '../../services/api';
 import { isFeatureAvailable } from '../../services/features';
 import { useTaskStore } from '../../store/useTaskStore';
 import { repoForPosition } from '../../utils/github';
-import { USE_REAL_API } from '../../services/http';
 
 export interface AiIssueDraftsModalProps {
   isOpen: boolean;
@@ -46,13 +45,16 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
   projectRef.current = project;
 
   const canRegister = isFeatureAvailable('aiIssueRegister');
-  // Server: the project list has no repos; the server opens the issue in the repo of the assignee's part,
-  // else the common repo (and says so if there is none). Mock: decide here from the project's repos.
-  const serverPicksRepo = USE_REAL_API;
-  const hasRepos = serverPicksRepo || (project.repositories || []).length > 0;
+  // The project's connected repos (GET /api/projects/{id}/repositories). The issue goes to the repo of
+  // the assignee's part, else the common one: the server picks it the same way.
+  const [repos, setRepos] = useState<ProjectRepository[] | null>(null); // null = loading or failed
+  const hasRepos = (repos || []).length > 0;
   const issueRepoFor = (assigneeId?: string) =>
-    repoForPosition(project, project.members.find((m) => m.user.id === assigneeId)?.position);
-  const canOpenIssue = (assigneeId?: string) => serverPicksRepo || Boolean(issueRepoFor(assigneeId));
+    repoForPosition(
+      { ...project, repositories: repos || [] },
+      project.members.find((m) => m.user.id === assigneeId)?.position
+    );
+  const canOpenIssue = (assigneeId?: string) => Boolean(issueRepoFor(assigneeId));
 
   const generate = useCallback(async () => {
     const mine = ++seq.current;
@@ -60,10 +62,17 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
     setError('');
     setSaveError('');
     try {
-      const list = await api.generateIssueDrafts(projectRef.current);
+      // Drafts and repos in parallel; without repos the drafts still work (no GitHub issues)
+      const [list, repoList] = await Promise.all([
+        api.generateIssueDrafts(projectRef.current),
+        api.getProjectRepositories(projectRef.current).catch((err) => {
+          console.error('Failed to load project repositories:', err);
+          return [] as ProjectRepository[];
+        }),
+      ]);
       if (mine !== seq.current) return;
-      const repoCount = (projectRef.current.repositories || []).length;
-      setDrafts(list.map((d) => ({ ...d, createGithubIssue: d.createGithubIssue && (USE_REAL_API || repoCount > 0) })));
+      setRepos(repoList);
+      setDrafts(list.map((d) => ({ ...d, createGithubIssue: d.createGithubIssue && repoList.length > 0 })));
       setPhase('review');
     } catch (err) {
       if (mine !== seq.current) return;
@@ -110,7 +119,12 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
     setPhase('saving');
     setSaveError('');
     try {
-      const r = await api.registerIssueDrafts(project, drafts);
+      // The repo shown next to each checkbox is the one that gets the issue
+      const withRepos = drafts.map((d) => {
+        const repo = d.createGithubIssue ? issueRepoFor(d.assigneeId) : undefined;
+        return { ...d, createGithubIssue: Boolean(repo), githubRepositoryId: repo?.githubRepositoryId };
+      });
+      const r = await api.registerIssueDrafts(project, withRepos);
       await fetchTasks();
       onClose();
       if (r.issuesFailed > 0) {
@@ -261,18 +275,27 @@ export const AiIssueDraftsModal: React.FC<AiIssueDraftsModalProps> = ({ isOpen, 
                         className={inputClass}
                       />
                     </label>
-                    {d.estimatedHours != null && (
-                      <span className="text-[11px] text-text-muted">예상 {d.estimatedHours}시간</span>
-                    )}
+                    {/* AI fills this in first; the user can change it */}
+                    <label className="flex items-center gap-1 text-[11px] text-text-muted">
+                      예상
+                      <input
+                        type="number"
+                        min={0}
+                        max={1000}
+                        step={0.5}
+                        value={d.estimatedHours ?? ''}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          update(d.key, { estimatedHours: v === '' ? undefined : Math.max(0, Number(v)) });
+                        }}
+                        aria-label="예상 소요 시간(시간)"
+                        className={`${inputClass} w-16`}
+                      />
+                      시간
+                    </label>
                     <label
                       className="ml-auto flex items-center gap-1 text-[11px] text-text-secondary"
-                      title={
-                        serverPicksRepo
-                          ? '담당자 파트의 레포, 없으면 공통 레포에 이슈를 만듭니다'
-                          : repo
-                          ? `${repo.fullName}에 이슈를 만듭니다`
-                          : '이 담당자의 파트에 연결된 레포가 없습니다'
-                      }
+                      title={repo ? `${repo.fullName}에 이슈를 만듭니다` : '이 담당자의 파트에 연결된 저장소가 없습니다'}
                     >
                       <input
                         type="checkbox"
