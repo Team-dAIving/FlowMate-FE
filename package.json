@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "electron": "electron electron/main.cjs",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron electron/main.cjs\"",
-    "electron:build": "tsc && vite build && electron-builder"
+    "electron:build": "tsc && vite build --base=./ && electron-builder"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.66.0",

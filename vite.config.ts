@@ -24,7 +24,9 @@ function electronConfig(apiBaseUrl: string): Plugin {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   return {
-    base: './',
+    // Web routes can be nested, so assets must resolve from the site root.
+    // The Electron build overrides this to ./ for its file:// index.html.
+    base: '/',
     plugins: [react(), electronConfig(env.VITE_API_BASE_URL ?? '')],
     resolve: {
       alias: {
