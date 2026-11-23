@@ -1,5 +1,5 @@
 import React from 'react';
-import { Video, Mic, Sparkles, Clock, Calendar, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { FileSearch, Mic, Sparkles, Clock, Calendar, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { useMeetingStore } from '../../store/useMeetingStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useUIStore } from '../../store/useUIStore';
@@ -24,7 +24,7 @@ export const MeetingList: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/80">
         <div>
           <h1 className="text-xl font-bold text-text-primary tracking-tight mt-1 flex items-center gap-2">
-            <Video className="h-5 w-5 text-primary" />
+            <FileSearch className="h-5 w-5 text-primary" />
             <span>회의록 및 AI 음성 분석 (Meetings)</span>
           </h1>
           <p className="text-xs text-text-secondary mt-0.5">

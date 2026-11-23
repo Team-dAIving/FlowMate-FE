@@ -11,6 +11,7 @@ import {
   Sun,
   GitBranch,
   ArrowRight,
+  FileSearch,
 } from 'lucide-react';
 import { useUIStore } from '../../store/useUIStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
@@ -174,7 +175,7 @@ export const CommandPalette: React.FC = () => {
       id: 'nav-meetings',
       label: 'Search Meetings (회의록 목록 이동)',
       category: 'Navigation',
-      icon: <Video className="h-4 w-4 text-text-muted" />,
+      icon: <FileSearch className="h-4 w-4 text-text-muted" />,
       action: () => {
         setCommandPaletteOpen(false);
         setCurrentProjectId(null);

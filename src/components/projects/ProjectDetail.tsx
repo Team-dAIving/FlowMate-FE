@@ -31,6 +31,7 @@ import {
   Layers,
   Crown,
   Sparkles,
+  FileSearch,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useTaskStore } from '../../store/useTaskStore';
@@ -223,7 +224,7 @@ export const ProjectDetail: React.FC = () => {
     { id: 'issues', label: 'Issues', icon: <ListTodo className="h-3.5 w-3.5" />, count: projectTasks.length },
     { id: 'board', label: 'Board', icon: <LayoutGrid className="h-3.5 w-3.5" /> },
     { id: 'timeline', label: 'Timeline', icon: <CalendarDays className="h-3.5 w-3.5" /> },
-    { id: 'meetings', label: 'Meetings', icon: <Video className="h-3.5 w-3.5" />, count: projectMeetings.length },
+    { id: 'meetings', label: 'Meetings', icon: <FileSearch className="h-3.5 w-3.5" />, count: projectMeetings.length },
     { id: 'members', label: 'Members', icon: <Users2 className="h-3.5 w-3.5" />, count: project.members.length },
   ];
 

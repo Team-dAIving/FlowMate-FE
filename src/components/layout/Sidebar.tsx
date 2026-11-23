@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   CheckSquare,
   FolderKanban,
-  Video,
   Users2,
   ListTodo,
   Plus,
@@ -11,6 +10,7 @@ import {
   Sparkles,
   Layers,
   LogOut,
+  FileSearch,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { USE_REAL_API } from '../../services/http';
@@ -41,7 +41,7 @@ export const Sidebar: React.FC = () => {
     { view: 'projects', label: 'Projects', icon: <FolderKanban className="h-4 w-4" /> },
     { view: 'teams', label: 'Teams', icon: <Users2 className="h-4 w-4" /> },
     { view: 'tasks', label: 'All Issues', icon: <ListTodo className="h-4 w-4" /> },
-    { view: 'meetings', label: 'Meetings', icon: <Video className="h-4 w-4" /> },
+    { view: 'meetings', label: 'Meetings', icon: <FileSearch className="h-4 w-4" /> },
   ];
 
   return (
