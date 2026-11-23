@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut, Notification, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, globalShortcut, Notification, session, shell } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const fs = require('fs');
@@ -127,6 +127,27 @@ function isAppUrl(rawUrl) {
     return false;
   }
 }
+// Electron grants every permission by default. Only our own page may ask, and only for what the app
+// uses: the microphone (meeting recording), notifications and clipboard writes (copy user code).
+const ALLOWED_PERMISSIONS = new Set(['media', 'notifications', 'clipboard-sanitized-write']);
+function permissionAllowed(permission, requestingUrl, mediaTypes) {
+  if (!ALLOWED_PERMISSIONS.has(permission) || !isAppUrl(requestingUrl || '')) return false;
+  // audio only: never the camera or screen
+  return permission !== 'media' || !mediaTypes || mediaTypes.every((t) => t === 'audio');
+}
+function restrictPermissions() {
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+    callback(permissionAllowed(permission, details.requestingUrl || wc.getURL(), details.mediaTypes));
+  });
+  session.defaultSession.setPermissionCheckHandler((wc, permission, requestingOrigin, details) =>
+    permissionAllowed(permission, (details && details.requestingUrl) || (wc && wc.getURL()) || requestingOrigin, details && details.mediaType === 'video' ? ['video'] : undefined)
+  );
+}
+// No <webview> anywhere: refuse one even if a compromised page tries to attach it
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-attach-webview', (e) => e.preventDefault());
+});
+
 function isWebUrl(rawUrl) {
   try {
     const { protocol } = new URL(rawUrl);
@@ -332,6 +353,7 @@ app.whenReady().then(async () => {
   // Restore the encrypted session and install the auth header hook before the app makes any request.
   // auth.ready never rejects (failures degrade to "logged out"), but never let it keep the window from opening.
   await auth.ready.catch((err) => console.error('[auth] init failed:', err));
+  restrictPermissions();
   createWindow();
   createTray();
 

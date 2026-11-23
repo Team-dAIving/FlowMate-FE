@@ -16,9 +16,6 @@ interface AuthState {
   status: AuthStatus;
   loginError: string | null;
   isLoggingIn: boolean;
-  /** Web only: a login result meant for the desktop app (see webAuth 'foreign'); offer to hand it over. */
-  desktopRelayUrl: string | null;
-  dismissDesktopRelay: () => void;
   /** Restores the session on startup (and finishes a web login redirect). Call once. */
   init: () => Promise<void>;
   startLogin: () => Promise<void>;
@@ -94,12 +91,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
   /** Web: this page load may be the OAuth redirect back from the backend. */
   const finishWebRedirect = async () => {
     const cb = consumeWebCallback();
-    if (cb.kind === 'foreign') {
-      set({ desktopRelayUrl: cb.desktopUrl });
-    } else if (cb.kind === 'error') {
+    if (cb.kind === 'error') {
       set({ loginError: LOGIN_ERROR });
-    } else if (cb.kind === 'token') {
-      webToken.set(cb.accessToken);
     } else if (cb.kind === 'code') {
       try {
         const { accessToken } = await authApi.exchangeCode(cb.code, 'web');
@@ -115,8 +108,6 @@ export const useAuthStore = create<AuthState>((set, get) => {
     status: 'checking',
     loginError: null,
     isLoggingIn: false,
-    desktopRelayUrl: null,
-    dismissDesktopRelay: () => set({ desktopRelayUrl: null }),
 
     init: () => {
       // React StrictMode runs effects twice in dev; the OAuth redirect must only be consumed once

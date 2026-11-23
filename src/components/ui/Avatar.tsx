@@ -20,6 +20,9 @@ export const Avatar: React.FC<AvatarProps> = ({ src, name = 'User', size = 'sm',
     return str.slice(0, 2).toUpperCase();
   };
 
+  // Server data: only https images (no data:/javascript:/http), and don't send the page URL along
+  const safeSrc = src && /^https:\/\//i.test(src) ? src : undefined;
+
   return (
     <div
       className={cn(
@@ -29,8 +32,8 @@ export const Avatar: React.FC<AvatarProps> = ({ src, name = 'User', size = 'sm',
       )}
       title={name}
     >
-      {src ? (
-        <img src={src} alt={name} className="h-full w-full object-cover" />
+      {safeSrc ? (
+        <img src={safeSrc} alt={name} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
       ) : (
         <span>{getInitials(name)}</span>
       )}

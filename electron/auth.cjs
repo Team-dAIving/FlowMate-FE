@@ -1,5 +1,6 @@
 // Main-process auth: the JWT never reaches the renderer.
-// - The OAuth callback (flowmate://oauth/callback?accessToken=... or ?code=...) is parsed here.
+// - The OAuth callback (flowmate://oauth/callback?code=...&state=...) is parsed here; the one-time
+//   code is exchanged for the JWT (POST /api/auth/token).
 // - The token is kept in memory and persisted encrypted with safeStorage (OS key store).
 // - "Authorization: Bearer" is attached here, only to requests for the API origin.
 // So an XSS in the renderer can at worst make requests while the app is open; it can't read the token.
@@ -204,7 +205,7 @@ function createAuth({ isDev, appRoot, getMainWebContents }) {
     /** Returns the result to show the renderer, or null when the callback is ignored. */
     handleCallback: async (rawUrl) => {
       await ready;
-      // Login CSRF guard: anything can open flowmate://oauth/callback?accessToken=<attacker token>.
+      // Login CSRF guard: anything can open flowmate://oauth/callback?code=<the attacker's own code>.
       // Only accept it for a login started from this app moments ago, and only once.
       if (!pendingLoginAt || Date.now() - pendingLoginAt > LOGIN_WINDOW_MS) {
         pendingLoginAt = 0;
@@ -217,17 +218,18 @@ function createAuth({ isDev, appRoot, getMainWebContents }) {
       } catch {
         return null; // malformed: ignore without consuming, so it can't cancel the real callback
       }
-      // Once the backend echoes `state`, a mismatch means the link isn't from this login
+      // The backend echoes our `state` on every callback: no state or a different one means the link
+      // isn't from this login (anything can open flowmate://oauth/callback), so ignore it.
       const state = params.get('state');
-      if (state !== null && state !== pendingState) {
-        console.warn('[auth] ignored an OAuth callback with a foreign state');
+      if (!pendingState || state !== pendingState) {
+        console.warn("[auth] ignored an OAuth callback without this login's state");
         return null;
       }
       const error = params.get('error');
-      const accessToken = params.get('accessToken') || '';
       const code = params.get('code') || '';
-      if (!error && !JWT_SHAPE.test(accessToken) && !CODE_SHAPE.test(code)) {
-        console.warn('[auth] ignored an OAuth callback without a valid token or code');
+      // Only the one-time code flow: a token in the URL is never accepted (it would sit in URL handlers)
+      if (!error && !CODE_SHAPE.test(code)) {
+        console.warn('[auth] ignored an OAuth callback without a valid code');
         return null; // same: a junk link must not cancel the login in progress
       }
       // A real outcome (success or the backend's error): consume the login so it can't be replayed
@@ -235,21 +237,17 @@ function createAuth({ isDev, appRoot, getMainWebContents }) {
       pendingState = null;
       if (error) return { ok: false, error: error.slice(0, 100) };
 
-      let jwt = accessToken;
-      let onboardingRequired = params.get('onboardingRequired') === 'true';
-      if (!JWT_SHAPE.test(jwt)) {
-        // One-time code flow: trade it for the JWT here, so the token still never reaches the renderer
-        try {
-          const exchanged = await exchangeCode(api.base, code, 'desktop');
-          jwt = exchanged.accessToken;
-          onboardingRequired = exchanged.onboardingRequired;
-        } catch (err) {
-          console.error('[auth] code exchange failed:', err.message);
-          return { ok: false, error: 'code_exchange_failed' };
-        }
+      // Trade the one-time code for the JWT here, so the token never reaches the renderer
+      let exchanged;
+      try {
+        exchanged = await exchangeCode(api.base, code, 'desktop');
+      } catch (err) {
+        console.error('[auth] code exchange failed:', err.message);
+        return { ok: false, error: 'code_exchange_failed' };
       }
+      const onboardingRequired = exchanged.onboardingRequired;
 
-      token = jwt;
+      token = exchanged.accessToken; // shape-checked in exchangeCode
       await persist();
       return { ok: true, onboardingRequired };
     },

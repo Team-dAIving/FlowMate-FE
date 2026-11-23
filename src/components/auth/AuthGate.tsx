@@ -3,7 +3,6 @@ import { USE_REAL_API } from '../../services/http';
 import { useAuthStore } from '../../store/useAuthStore';
 import { LoginPage } from './LoginPage';
 import { NicknameDialog } from './NicknameDialog';
-import { DesktopRelayPrompt } from './DesktopRelayPrompt';
 
 /**
  * Login gate for the real backend (desktop: JWT held by the Electron main process; web: per tab).
@@ -35,11 +34,5 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
     screen = children;
   }
 
-  return (
-    <>
-      {screen}
-      {/* A desktop-app login that came back to this browser can show up in any state */}
-      <DesktopRelayPrompt />
-    </>
-  );
+  return <>{screen}</>;
 };

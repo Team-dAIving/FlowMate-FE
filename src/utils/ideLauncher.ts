@@ -1,3 +1,5 @@
+import { useWorkspaceStore } from '../store/useWorkspaceStore';
+
 export type IdeId = 'vscode' | 'intellij';
 
 export const IDE_OPTIONS: { id: IdeId; label: string }[] = [
@@ -49,11 +51,16 @@ export async function openProjectInIde(ide: IdeId, path: string): Promise<string
 }
 
 // ---- Local folder per project. Machine-specific, so it lives in localStorage, not on the server. ----
+// Kept per signed-in user: another account on the same computer must not see someone else's folders.
 const PATHS_KEY = 'flowmate_project_paths';
+const pathsKey = () => {
+  const userId = useWorkspaceStore.getState().currentUser?.id;
+  return userId ? `${PATHS_KEY}:${userId}` : PATHS_KEY;
+};
 
 function readPaths(): Record<string, string> {
   try {
-    const parsed = JSON.parse(localStorage.getItem(PATHS_KEY) || '{}');
+    const parsed = JSON.parse(localStorage.getItem(pathsKey()) || '{}');
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
@@ -70,7 +77,7 @@ export function setProjectPath(projectId: string, path: string): void {
   if (trimmed) all[projectId] = trimmed;
   else delete all[projectId];
   try {
-    localStorage.setItem(PATHS_KEY, JSON.stringify(all));
+    localStorage.setItem(pathsKey(), JSON.stringify(all));
   } catch (err) {
     console.error('Failed to save project path:', err);
   }
