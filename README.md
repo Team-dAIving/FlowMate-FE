@@ -8,14 +8,7 @@ FlowMate는 해커톤, 공모전, 경진대회, 캡스톤처럼 여러 팀에서
 
 ## 빠른 시작
 
-```bash
-npm install
-
-npm run dev             # 웹 개발 서버 (http://localhost:5173)
-npm run electron:dev    # 데스크톱 앱 (Vite + Electron)
-npm run build           # 타입 검사 + 웹 프로덕션 빌드 (dist/)
-npm run electron:build  # 데스크톱 설치 파일 (release/, Windows nsis / macOS dmg / Linux AppImage)
-```
+>>> 우측 Releases 탭에서 setup exe를 다운받아 실행합니다. <<<
 
 ### 환경 변수
 
